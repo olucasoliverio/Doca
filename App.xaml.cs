@@ -29,6 +29,9 @@ public partial class App : Application
         var diag = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Diag");
         if (e.Args.Contains("--diag")) { diag.Set(); Shutdown(); return; }
         if (e.Args.Contains("--settings") && Mutex.TryOpenExisting("Doca.SingleInstance", out _)) { settings.Set(); Shutdown(); return; }
+        // "Doca.exe --spotlight" opens Spotlight in the running instance (e.g. from another launcher or shortcut).
+        var spotlight = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Spotlight");
+        if (e.Args.Contains("--spotlight")) { spotlight.Set(); Shutdown(); return; }
 
         mutex = new Mutex(true, "Doca.SingleInstance", out bool created);
         if (!created && e.Args.Contains("--restart"))
@@ -48,6 +51,7 @@ public partial class App : Application
         new Thread(() => { quit.WaitOne(); Dispatcher.BeginInvoke(() => Shutdown()); }) { IsBackground = true }.Start();
         new Thread(() => { while (settings.WaitOne()) Dispatcher.BeginInvoke(ShowSettings); }) { IsBackground = true }.Start();
         new Thread(() => { while (diag.WaitOne()) Dispatcher.BeginInvoke(WriteDiagnostics); }) { IsBackground = true }.Start();
+        new Thread(() => { while (spotlight.WaitOne()) Dispatcher.BeginInvoke(() => SpotlightWindow.Toggle(cfg!)); }) { IsBackground = true }.Start();
 
         // --preview: try Doca without touching the taskbar or other docks.
         bool preview = e.Args.Contains("--preview");
@@ -60,6 +64,7 @@ public partial class App : Application
 
         Tray.Start();
         WindowCycler.Start(cfg, tracker);
+        SpotlightHotkey.Start(cfg);
         CreateScreens();
         if (e.Args.Contains("--settings")) ShowSettings();
         tracker.FullscreenChanged += CornerWindow.BringAllToTop;
@@ -136,6 +141,7 @@ public partial class App : Application
                 break;
             case Apply.Hotkeys:
                 WindowCycler.Start(app.cfg!, app.tracker!);
+                SpotlightHotkey.Start(app.cfg!);
                 break;
             case Apply.Taskbar:
                 if (app.cfg!.HideTaskbar) Taskbar.Hide(app.cfg);
@@ -186,6 +192,7 @@ public partial class App : Application
             foreach (var b in bars) b.ReleaseAppBar();
             tracker?.Dispose();
             WindowCycler.Stop();
+            SpotlightHotkey.Stop();
             Tray.Stop();
             if (cfg != null) Taskbar.Restore(cfg);
         }

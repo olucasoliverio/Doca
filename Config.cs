@@ -40,6 +40,10 @@ internal sealed class DocaConfig
     public bool AppMenus { get; set; } = true;
     public bool WindowCycleHotkey { get; set; } = true;
     public string WindowCycleModifier { get; set; } = "Alt"; // "Alt" or "Ctrl"
+    public bool Spotlight { get; set; } = true;
+
+    /// <summary>How many times each Spotlight result was opened; frequent ones rank first.</summary>
+    public Dictionary<string, int> SpotlightUsage { get; set; } = new();
     public double DockOpacity { get; set; } = 0.75;
     public bool HideTaskbar { get; set; } = true;
     public double MenuBarHeight { get; set; } = 28;

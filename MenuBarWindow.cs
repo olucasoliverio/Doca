@@ -101,7 +101,7 @@ internal sealed class MenuBarWindow : Window
         volumeItem.MouseRightButtonUp += (_, _) => { Audio.ToggleMute(); UpdateVolume(); };
         TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(hoverBrush, cfg) : null;
         if (tray != null) right.Children.Add(tray);
-        right.Children.Add(Item(Glyph(""), _ => Shell.WinKey(0x53), "Pesquisar"));
+        right.Children.Add(Item(Glyph(""), _ => SpotlightWindow.Toggle(cfg), "Spotlight (Alt+Espaço)"));
         right.Children.Add(batteryItem);
         right.Children.Add(bluetoothItem);
         right.Children.Add(wifiItem);

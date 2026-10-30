@@ -94,6 +94,9 @@ internal sealed class SettingsWindow : Window
             Row("Tecla do atalho", "A tecla à esquerda do 1, junto com:",
                 Choice(new[] { "Alt", "Ctrl" }, () => cfg.WindowCycleModifier, v => { cfg.WindowCycleModifier = v; Changed(Apply.Hotkeys); }))),
         Card(
+            Toggle("Spotlight com Alt+Espaço", "Busca rápida de apps, configurações e contas no centro da tela. A lupa da barra também abre.",
+                () => cfg.Spotlight, v => { cfg.Spotlight = v; Changed(Apply.Hotkeys); })),
+        Card(
             Toggle("Cantos arredondados na tela", "Arredonda os quatro cantos de cada monitor, como num Mac.",
                 () => cfg.ScreenCorners, v => { cfg.ScreenCorners = v; Changed(Apply.Screens); }),
             SliderRow("Raio dos cantos", 4, 32, () => cfg.ScreenCornerRadius, v => { cfg.ScreenCornerRadius = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px")),

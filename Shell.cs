@@ -72,7 +72,7 @@ internal static class Shell
 
     #region Icons (loaded on a dedicated STA thread so the UI never stalls)
 
-    private static readonly BlockingCollection<(string name, Action<ImageSource?> done)> queue = new();
+    private static readonly BlockingCollection<(string name, int size, Action<ImageSource?> done)> queue = new();
     private static readonly Dictionary<string, ImageSource?> iconCache = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Largest on-screen icon size in physical pixels (set by the Dock).</summary>
@@ -82,13 +82,13 @@ internal static class Shell
     {
         var t = new Thread(() =>
         {
-            foreach (var (name, done) in queue.GetConsumingEnumerable())
+            foreach (var (name, size, done) in queue.GetConsumingEnumerable())
             {
                 ImageSource? img = null;
-                try { img = LoadIcon(name, 256); } catch (Exception ex) { App.Log(ex); }
+                try { img = LoadIcon(name, size); } catch (Exception ex) { App.Log(ex); }
                 Application.Current?.Dispatcher.BeginInvoke(() =>
                 {
-                    iconCache[name] = img;
+                    iconCache[IconKey(name, size)] = img;
                     done(img);
                 });
             }
@@ -98,11 +98,17 @@ internal static class Shell
     }
 
     /// <summary>Requests an icon for a parsing name (path, shell:AppsFolder\AUMID, ::{CLSID}). Callback runs on the UI thread.</summary>
-    public static void RequestIcon(string parsingName, Action<ImageSource?> done)
+    /// <remarks>
+    /// Lists that show many small icons (Spotlight) ask for a smaller size: 256 px icons cost 256 KB each
+    /// and the cache keeps them for the whole session.
+    /// </remarks>
+    public static void RequestIcon(string parsingName, Action<ImageSource?> done, int size = 256)
     {
-        if (iconCache.TryGetValue(parsingName, out var cached)) { done(cached); return; }
-        queue.Add((parsingName, done));
+        if (iconCache.TryGetValue(IconKey(parsingName, size), out var cached)) { done(cached); return; }
+        queue.Add((parsingName, size, done));
     }
+
+    private static string IconKey(string name, int size) => size == 256 ? name : size + "|" + name;
 
     public static void ForgetIcon(string parsingName) => iconCache.Remove(parsingName);
 
