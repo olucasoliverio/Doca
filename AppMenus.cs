@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows.Automation;
 
 namespace Doca;
@@ -34,6 +34,7 @@ internal static class AppMenus
 
     // UI Automation lookups are slow-ish; share one per window across all menu bars.
     private static readonly Dictionary<IntPtr, Task<AppMenuSet>> cache = new();
+    public static int CacheCount => cache.Count;
 
     public static Task<AppMenuSet> GetAsync(IntPtr hwnd)
     {

@@ -25,6 +25,9 @@ public partial class App : Application
         if (e.Args.Contains("--quit")) { quit.Set(); Shutdown(); return; }
         // "Doca.exe --settings" opens Preferences in the running instance.
         var settings = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Settings");
+        // "Doca.exe --diag" makes the running instance write memory/cache stats to %APPDATA%\Doca\diag.txt.
+        var diag = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Diag");
+        if (e.Args.Contains("--diag")) { diag.Set(); Shutdown(); return; }
         if (e.Args.Contains("--settings") && Mutex.TryOpenExisting("Doca.SingleInstance", out _)) { settings.Set(); Shutdown(); return; }
 
         mutex = new Mutex(true, "Doca.SingleInstance", out bool created);
@@ -44,6 +47,7 @@ public partial class App : Application
 
         new Thread(() => { quit.WaitOne(); Dispatcher.BeginInvoke(() => Shutdown()); }) { IsBackground = true }.Start();
         new Thread(() => { while (settings.WaitOne()) Dispatcher.BeginInvoke(ShowSettings); }) { IsBackground = true }.Start();
+        new Thread(() => { while (diag.WaitOne()) Dispatcher.BeginInvoke(WriteDiagnostics); }) { IsBackground = true }.Start();
 
         // --preview: try Doca without touching the taskbar or other docks.
         bool preview = e.Args.Contains("--preview");
@@ -138,6 +142,29 @@ public partial class App : Application
                 else Taskbar.Restore(app.cfg);
                 break;
         }
+    }
+
+    private void WriteDiagnostics()
+    {
+        var p = Process.GetCurrentProcess();
+        string Mem(string when)
+        {
+            p.Refresh();
+            var gc = GC.GetGCMemoryInfo();
+            return $"{when}: private={p.PrivateMemorySize64 >> 20}MB managedHeap={GC.GetTotalMemory(false) >> 20}MB " +
+                   $"committed={gc.TotalCommittedBytes >> 20}MB fragmented={gc.FragmentedBytes >> 20}MB " +
+                   $"gen0/1/2={GC.CollectionCount(0)}/{GC.CollectionCount(1)}/{GC.CollectionCount(2)}";
+        }
+        var lines = new List<string> { $"[{DateTime.Now:s}] uptime={(DateTime.Now - p.StartTime).TotalSeconds:0}s", Mem("antes do GC") };
+        GC.Collect(2, GCCollectionMode.Forced, blocking: true, compacting: true);
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
+        lines.Add(Mem("depois do GC"));
+        lines.Add($"tracker: apps={tracker?.Apps.Count} windows={tracker?.Apps.Sum(a => a.Windows.Count)}");
+        lines.Add($"shell: {Shell.CacheStats} appMenus={AppMenus.CacheCount} badges: {Badges.Stats}");
+        lines.Add($"tray icons={Tray.Area?.TrayIcons.Count} bars={bars.Count} docks={docks.Count} corners={corners.Count} handles={p.HandleCount} threads={p.Threads.Count}");
+        lines.Add("");
+        try { File.AppendAllLines(Path.Combine(DocaConfig.Dir, "diag.txt"), lines); } catch { }
     }
 
     public static void ShowSettings() => SettingsWindow.ShowSingle(((App)Current).cfg!);

@@ -81,7 +81,7 @@ internal sealed class MenuBarWindow : Window
             Fill = Brushes.White, Width = 13, Height = 13, Stretch = Stretch.Uniform, VerticalAlignment = VerticalAlignment.Center,
         };
 
-        var left = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
+        var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(10, 0, 0, 0) };
         left.Children.Add(Item(logo, ShowSystemMenu, "Menu do sistema"));
         left.Children.Add(Item(appName, ShowAppMenu, null));
         left.Children.Add(appMenus);
@@ -99,7 +99,8 @@ internal sealed class MenuBarWindow : Window
         volumeItem = Item(volume, b => Flyout.Toggle("sound", b, () => new SoundFlyout(cfg)), null);
         volumeItem.MouseWheel += (_, e) => { Audio.Nudge(e.Delta > 0 ? 0.02f : -0.02f); UpdateVolume(); };
         volumeItem.MouseRightButtonUp += (_, _) => { Audio.ToggleMute(); UpdateVolume(); };
-        if (cfg.ShowTrayIcons) right.Children.Add(new TrayIconsPanel(hoverBrush, cfg));
+        TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(hoverBrush, cfg) : null;
+        if (tray != null) right.Children.Add(tray);
         right.Children.Add(Item(Glyph(""), _ => Shell.WinKey(0x53), "Pesquisar"));
         right.Children.Add(batteryItem);
         right.Children.Add(bluetoothItem);
@@ -111,6 +112,18 @@ internal sealed class MenuBarWindow : Window
         root.Children.Add(left);
         root.Children.Add(right);
         Content = root;
+
+        // Tray icons get whatever width the app menus (left) and status items (right) leave free;
+        // the rest goes behind ⌄ instead of disappearing under the menus.
+        void FitTray()
+        {
+            if (tray == null) return;
+            double fixedRight = right.ActualWidth - tray.ActualWidth;
+            tray.Available = Math.Max(0, ActualWidth - left.ActualWidth - left.Margin.Left - fixedRight - right.Margin.Right - 24);
+        }
+        left.SizeChanged += (_, _) => FitTray();
+        right.SizeChanged += (_, _) => FitTray();
+        SizeChanged += (_, _) => FitTray();
 
         SourceInitialized += (_, _) =>
         {

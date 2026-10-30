@@ -1,4 +1,4 @@
-using System.Collections.Specialized;
+﻿using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
@@ -53,6 +53,7 @@ internal static class Badges
     private static readonly Dictionary<IntPtr, ApplicationWindow> windows = new();
     private static readonly HashSet<IntPtr> flashing = new();
     private static readonly Dictionary<IntPtr, string> titles = new();
+    public static string Stats => $"taskWindows={windows.Count} flashing={flashing.Count} titles={titles.Count}";
     private static System.Windows.Interop.HwndSource? shellHook;
     private static uint shellMessage;
 
@@ -170,21 +171,31 @@ internal static class Badges
     }
 }
 
-/// <summary>Row of tray icons for a menu bar. Mirrors NotificationArea.TrayIcons live; drag to reorder.</summary>
+/// <summary>
+/// Tray icons of a menu bar: as many as fit, the rest (plus the ones the user collapsed) behind a ⌄ button,
+/// like Bartender on macOS. Drag to reorder; drag onto ⌄ to collapse.
+/// </summary>
 internal sealed class TrayIconsPanel : StackPanel
 {
     [DllImport("user32.dll")] private static extern int GetDoubleClickTime();
 
-    /// <summary>Raised after the user reorders icons so the bars on other screens follow.</summary>
-    private static event Action? OrderChanged;
+    /// <summary>Raised after order/collapse changes so the bars on every screen follow.</summary>
+    private static event Action? Changed;
+    public static void RaiseChanged() => Changed?.Invoke();
+
+    private const double Slot = 30; // icon 16 + padding 12 + margin 2
 
     private readonly Brush hover;
     private readonly DocaConfig cfg;
+    private readonly StackPanel icons = new() { Orientation = Orientation.Horizontal };
+    private readonly Border chevron;
+    private double available = double.PositiveInfinity;
+    private List<NotifyIcon> overflow = new();
 
     // Drag state: a left press is held back until release so the icon can be dragged instead of clicked.
     private Border? pressed;
     private Point pressPoint;
-    private bool dragging;
+    private bool dragging, overChevron;
 
     public TrayIconsPanel(Brush hover, DocaConfig cfg)
     {
@@ -193,31 +204,74 @@ internal sealed class TrayIconsPanel : StackPanel
         Orientation = Orientation.Horizontal;
         VerticalAlignment = VerticalAlignment.Stretch;
 
+        chevron = new Border
+        {
+            Child = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center },
+            Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(1, 3, 1, 3), CornerRadius = new CornerRadius(6),
+            Background = Brushes.Transparent, ToolTip = "Ícones recolhidos", Visibility = Visibility.Collapsed,
+        };
+        chevron.MouseEnter += (_, _) => chevron.Background = hover;
+        chevron.MouseLeave += (_, _) => { if (!dragging) chevron.Background = Brushes.Transparent; };
+        chevron.MouseLeftButtonUp += (_, _) =>
+        {
+            if (dragging) return;
+            var list = overflow.ToList();
+            Flyout.Toggle("tray-overflow", chevron, () => new TrayOverflowFlyout(cfg, hover, list));
+        };
+        Children.Add(chevron);
+        Children.Add(icons);
+
         var area = Tray.Area;
         if (area == null) return;
         area.TrayIcons.CollectionChanged += OnCollectionChanged;
-        OrderChanged += Rebuild;
+        Changed += Rebuild;
         Unloaded += (_, _) =>
         {
             area.TrayIcons.CollectionChanged -= OnCollectionChanged;
-            OrderChanged -= Rebuild;
+            Changed -= Rebuild;
         };
         Rebuild();
     }
 
+    /// <summary>Width the menu bar can give to tray icons (set by the bar as its contents change).</summary>
+    public double Available
+    {
+        set
+        {
+            if (Math.Abs(value - available) < 1) return;
+            int before = Fit(available);
+            available = value;
+            if (Fit(value) != before) Rebuild();
+        }
+    }
+
+    private static int Fit(double width) =>
+        double.IsInfinity(width) ? int.MaxValue : (int)Math.Max(0, Math.Floor((width - Slot) / Slot)); // keep room for ⌄
+
     private void OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) => Dispatcher.BeginInvoke(Rebuild);
+
+    /// <summary>All app tray icons in the user's order (Windows' volume/network/power excluded: the bar has its own).</summary>
+    public static List<NotifyIcon> Ordered(DocaConfig cfg)
+    {
+        var area = Tray.Area;
+        if (area == null) return new();
+        int Rank(NotifyIcon i) { int r = cfg.TrayOrder.IndexOf(i.Identifier ?? ""); return r < 0 ? int.MaxValue : r; }
+        return area.TrayIcons.Where(i => !IsBuiltIn(i) && !i.IsHidden).OrderBy(Rank).ToList();
+    }
+
+    public static bool IsCollapsed(DocaConfig cfg, NotifyIcon i) => cfg.TrayCollapsed.Contains(i.Identifier ?? "");
 
     private void Rebuild()
     {
-        var area = Tray.Area;
-        Children.Clear();
-        if (area == null) return;
-        int Rank(NotifyIcon i) { int r = cfg.TrayOrder.IndexOf(i.Identifier ?? ""); return r < 0 ? int.MaxValue : r; }
-        foreach (var icon in area.TrayIcons.Where(i => !IsBuiltIn(i)).OrderBy(Rank).ToList())
-            Children.Add(Button(icon));
+        icons.Children.Clear();
+        var all = Ordered(cfg);
+        var inBar = all.Where(i => !IsCollapsed(cfg, i)).ToList();
+        int fit = Fit(available);
+        foreach (var icon in inBar.Take(fit)) icons.Children.Add(Button(icon));
+        overflow = inBar.Skip(fit).Concat(all.Where(i => IsCollapsed(cfg, i))).ToList();
+        chevron.Visibility = overflow.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>Windows' own volume/network/power icons: the menu bar already has these.</summary>
     private static bool IsBuiltIn(NotifyIcon icon)
     {
         string g = icon.GUID.ToString();
@@ -226,70 +280,82 @@ internal sealed class TrayIconsPanel : StackPanel
             || g.StartsWith("7820ae75", StringComparison.OrdinalIgnoreCase);
     }
 
-    private Border Button(NotifyIcon icon)
+    #region Shared icon button pieces (bar and overflow flyout)
+
+    public static uint MousePos() => MouseHelper.GetCursorPositionParam();
+    public static int DoubleClick() => GetDoubleClickTime();
+
+    /// <summary>Icon visual that follows the app's icon/tooltip/visibility changes while it is on screen.</summary>
+    public static Border Visual(NotifyIcon icon, Action? hiddenChanged = null)
     {
         var img = new Image { Width = 16, Height = 16, Source = icon.Icon, VerticalAlignment = VerticalAlignment.Center };
         RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
         var b = new Border
         {
-            Child = img,
-            Tag = icon,
-            Padding = new Thickness(6, 0, 6, 0),
-            Margin = new Thickness(1, 3, 1, 3),
-            CornerRadius = new CornerRadius(6),
+            Child = img, Tag = icon,
+            Padding = new Thickness(6, 0, 6, 0), Margin = new Thickness(1, 3, 1, 3), CornerRadius = new CornerRadius(6),
             Background = Brushes.Transparent,
             ToolTip = string.IsNullOrWhiteSpace(icon.Title) ? null : icon.Title,
-            Visibility = icon.IsHidden ? Visibility.Collapsed : Visibility.Visible,
         };
-
-        PropertyChangedEventHandler changed = (_, e) => Dispatcher.BeginInvoke(() =>
+        PropertyChangedEventHandler changed = (_, e) => b.Dispatcher.BeginInvoke(() =>
         {
             switch (e.PropertyName)
             {
                 case nameof(NotifyIcon.Icon): img.Source = icon.Icon; break;
                 case nameof(NotifyIcon.Title): b.ToolTip = string.IsNullOrWhiteSpace(icon.Title) ? null : icon.Title; break;
-                case nameof(NotifyIcon.IsHidden): b.Visibility = icon.IsHidden ? Visibility.Collapsed : Visibility.Visible; break;
+                case nameof(NotifyIcon.IsHidden): hiddenChanged?.Invoke(); break;
             }
         });
         // Loaded/Unloaded pair (not ctor) because dragging re-parents the button.
         b.Loaded += (_, _) => { icon.PropertyChanged -= changed; icon.PropertyChanged += changed; };
         b.Unloaded += (_, _) => icon.PropertyChanged -= changed;
+        return b;
+    }
 
-        uint Mouse() => MouseHelper.GetCursorPositionParam();
-        void Place()
-        {
-            // Apps use this rect to position their flyouts next to the icon.
-            if (PresentationSource.FromVisual(b) == null) return;
-            var tl = b.PointToScreen(new Point(0, 0));
-            var br = b.PointToScreen(new Point(b.ActualWidth, b.ActualHeight));
-            icon.Placement = new ManagedShell.Interop.NativeMethods.Rect((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
-        }
+    /// <summary>Apps use this rect to position their own menus/flyouts next to the icon.</summary>
+    public static void Place(Border b, NotifyIcon icon)
+    {
+        if (PresentationSource.FromVisual(b) == null) return;
+        var tl = b.PointToScreen(new Point(0, 0));
+        var br = b.PointToScreen(new Point(b.ActualWidth, b.ActualHeight));
+        icon.Placement = new ManagedShell.Interop.NativeMethods.Rect((int)tl.X, (int)tl.Y, (int)br.X, (int)br.Y);
+    }
 
-        b.MouseEnter += (_, _) => { b.Background = hover; Place(); icon.IconMouseEnter(Mouse()); };
-        b.MouseLeave += (_, _) => { if (!dragging) b.Background = Brushes.Transparent; icon.IconMouseLeave(Mouse()); };
+    #endregion
+
+    private Border Button(NotifyIcon icon)
+    {
+        var b = Visual(icon, () => Rebuild());
+
+        b.MouseEnter += (_, _) => { b.Background = hover; Place(b, icon); icon.IconMouseEnter(MousePos()); };
+        b.MouseLeave += (_, _) => { if (!dragging) b.Background = Brushes.Transparent; icon.IconMouseLeave(MousePos()); };
         b.MouseMove += (_, e) =>
         {
             if (pressed == b && e.LeftButton == MouseButtonState.Pressed)
             {
-                var p = e.GetPosition(this);
-                if (!dragging && Math.Abs(p.X - pressPoint.X) > 6) dragging = true;
-                if (dragging) { DragTo(b, p.X); return; }
+                var p = e.GetPosition(icons);
+                if (!dragging && Math.Abs(p.X - pressPoint.X) > 6)
+                {
+                    dragging = true;
+                    chevron.Visibility = Visibility.Visible; // drop target for "collapse"
+                }
+                if (dragging) { DragTo(b, p.X, e.GetPosition(chevron)); return; }
             }
-            icon.IconMouseMove(Mouse());
+            icon.IconMouseMove(MousePos());
         };
         b.MouseDown += (_, e) =>
         {
             e.Handled = true;
-            Place();
+            Place(b, icon);
             if (e.ChangedButton == MouseButton.Left)
             {
                 pressed = b;
-                pressPoint = e.GetPosition(this);
+                pressPoint = e.GetPosition(icons);
                 dragging = false;
                 b.CaptureMouse();
                 return;
             }
-            icon.IconMouseDown(e.ChangedButton, Mouse(), GetDoubleClickTime());
+            icon.IconMouseDown(e.ChangedButton, MousePos(), DoubleClick());
         };
         b.MouseUp += (_, e) =>
         {
@@ -302,23 +368,28 @@ internal sealed class TrayIconsPanel : StackPanel
                 {
                     dragging = false;
                     b.Opacity = 1;
-                    SaveOrder();
+                    chevron.Background = Brushes.Transparent;
+                    EndDrag(icon);
                     return;
                 }
-                icon.IconMouseDown(MouseButton.Left, Mouse(), GetDoubleClickTime());
+                icon.IconMouseDown(MouseButton.Left, MousePos(), DoubleClick());
             }
-            icon.IconMouseUp(e.ChangedButton, Mouse(), GetDoubleClickTime());
+            icon.IconMouseUp(e.ChangedButton, MousePos(), DoubleClick());
         };
         return b;
     }
 
-    /// <summary>Moves the dragged icon to the slot under the cursor.</summary>
-    private void DragTo(Border b, double x)
+    /// <summary>Moves the dragged icon to the slot under the cursor, or highlights ⌄ when hovering it.</summary>
+    private void DragTo(Border b, double x, Point onChevron)
     {
-        b.Opacity = 0.6;
-        int from = Children.IndexOf(b), to = 0;
+        overChevron = onChevron.X >= 0 && onChevron.X <= chevron.ActualWidth;
+        chevron.Background = overChevron ? hover : Brushes.Transparent;
+        b.Opacity = overChevron ? 0.35 : 0.6;
+        if (overChevron) return;
+
+        int from = icons.Children.IndexOf(b), to = 0;
         double acc = 0;
-        foreach (UIElement c in Children)
+        foreach (UIElement c in icons.Children)
         {
             if (c == b) continue;
             double w = ((FrameworkElement)c).ActualWidth + 2;
@@ -326,17 +397,75 @@ internal sealed class TrayIconsPanel : StackPanel
             acc += w;
         }
         if (to == from) return;
-        Children.RemoveAt(from);
-        Children.Insert(to, b);
+        icons.Children.RemoveAt(from);
+        icons.Children.Insert(to, b);
         b.CaptureMouse(); // re-parenting drops capture
     }
 
-    private void SaveOrder()
+    private void EndDrag(NotifyIcon icon)
     {
-        var ids = Children.OfType<Border>().Select(c => (c.Tag as NotifyIcon)?.Identifier).OfType<string>().ToList();
-        // Keep remembered positions of icons that are not running right now at the end.
+        var ids = icons.Children.OfType<Border>().Select(c => (c.Tag as NotifyIcon)?.Identifier).OfType<string>().ToList();
+        // Keep remembered positions of icons that are not in the bar right now after these.
         cfg.TrayOrder = ids.Concat(cfg.TrayOrder.Where(id => !ids.Contains(id))).ToList();
+        if (overChevron && icon.Identifier is string id && !cfg.TrayCollapsed.Contains(id)) cfg.TrayCollapsed.Add(id);
+        overChevron = false;
         cfg.Save();
-        OrderChanged?.Invoke();
+        RaiseChanged();
+    }
+}
+
+/// <summary>Drop-down with the tray icons that did not fit or were collapsed. 📌 brings a collapsed icon back to the bar.</summary>
+internal sealed class TrayOverflowFlyout : Flyout
+{
+    public TrayOverflowFlyout(DocaConfig cfg, Brush hover, List<NotifyIcon> icons) : base(cfg, 276)
+    {
+        var grid = new WrapPanel();
+        foreach (var icon in icons)
+        {
+            var b = TrayIconsPanel.Visual(icon);
+            b.Padding = new Thickness(10, 8, 10, 8);
+            b.Margin = new Thickness(2);
+            b.MouseEnter += (_, _) => { b.Background = hover; TrayIconsPanel.Place(b, icon); icon.IconMouseEnter(TrayIconsPanel.MousePos()); };
+            b.MouseLeave += (_, _) => { b.Background = Brushes.Transparent; icon.IconMouseLeave(TrayIconsPanel.MousePos()); };
+            b.MouseMove += (_, _) => icon.IconMouseMove(TrayIconsPanel.MousePos());
+            b.MouseDown += (_, e) => { e.Handled = true; TrayIconsPanel.Place(b, icon); };
+            // Down+up together on release: the app's menu will take focus and close this flyout right after.
+            b.MouseUp += (_, e) =>
+            {
+                e.Handled = true;
+                icon.IconMouseDown(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
+                icon.IconMouseUp(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
+            };
+
+            var tile = new Grid();
+            tile.Children.Add(b);
+            if (TrayIconsPanel.IsCollapsed(cfg, icon))
+            {
+                var pin = new TextBlock
+                {
+                    Text = "", FontFamily = new FontFamily(IconFont), FontSize = 10, Padding = new Thickness(3),
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+                    Visibility = Visibility.Hidden, Background = Brushes.Transparent, ToolTip = "Mostrar na barra",
+                };
+                pin.MouseLeftButtonUp += (_, e) =>
+                {
+                    e.Handled = true;
+                    cfg.TrayCollapsed.Remove(icon.Identifier ?? "");
+                    cfg.Save();
+                    TrayIconsPanel.RaiseChanged();
+                    CloseFlyout();
+                };
+                tile.MouseEnter += (_, _) => pin.Visibility = Visibility.Visible;
+                tile.MouseLeave += (_, _) => pin.Visibility = Visibility.Hidden;
+                tile.Children.Add(pin);
+            }
+            grid.Children.Add(tile);
+        }
+        Body.Children.Add(grid);
+        Body.Children.Add(new TextBlock
+        {
+            Text = "Arraste um ícone da barra até ⌄ para recolhê-lo. Passe o mouse e clique em 📌 para trazê-lo de volta.",
+            FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 8, 2, 0),
+        });
     }
 }

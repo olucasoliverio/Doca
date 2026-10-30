@@ -137,13 +137,55 @@ internal sealed class SettingsWindow : Window
         Card(
             Toggle("Ícones da bandeja", "Ícones dos apps em segundo plano (Discord, Steam…), inclusive os que o Windows esconde.",
                 () => cfg.ShowTrayIcons, v => { cfg.ShowTrayIcons = v; Changed(Apply.Screens); }),
-            Row("Ordem dos ícones da bandeja", "Arraste os ícones na barra para reordenar.",
-                Btn("Restaurar ordem", () => { cfg.TrayOrder.Clear(); Changed(Apply.Screens); }))),
+            Row("Ordem dos ícones da bandeja", "Arraste os ícones na barra para reordenar, ou até ⌄ para recolher.",
+                Btn("Restaurar", () => { cfg.TrayOrder.Clear(); cfg.TrayCollapsed.Clear(); Changed(Apply.Screens); }))),
+        TrayIconsCard(),
         Card(
             Toggle("Mostrar a data no relógio", "Ex.: Qui 29 Out 21:35",
                 () => cfg.ClockShowDate, v => { cfg.ClockShowDate = v; Changed(Apply.Screens); }),
             Toggle("Mostrar os segundos", null,
                 () => cfg.ClockShowSeconds, v => { cfg.ClockShowSeconds = v; Changed(Apply.Screens); })));
+
+    /// <summary>Every running tray icon with "show in the bar" (unchecked = behind ⌄).</summary>
+    private UIElement TrayIconsCard()
+    {
+        var rows = new List<UIElement>();
+        foreach (var icon in TrayIconsPanel.Ordered(cfg))
+        {
+            string title = (icon.Title ?? "").Split('\n')[0].Trim();
+            if (title.Length == 0) title = System.IO.Path.GetFileNameWithoutExtension(icon.Path ?? "") is { Length: > 0 } n ? n : "Ícone sem nome";
+            if (title.Length > 50) title = title[..47] + "…";
+
+            var box = new CheckBox { IsChecked = !TrayIconsPanel.IsCollapsed(cfg, icon), MinWidth = 0 };
+            var id = icon.Identifier ?? "";
+            box.Click += (_, _) =>
+            {
+                cfg.TrayCollapsed.Remove(id);
+                if (box.IsChecked != true) cfg.TrayCollapsed.Add(id);
+                cfg.Save();
+                TrayIconsPanel.RaiseChanged();
+            };
+
+            var g = new Grid { Margin = new Thickness(0, 8, 0, 8) };
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.ColumnDefinitions.Add(new ColumnDefinition());
+            g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            g.Children.Add(new Image { Source = icon.Icon, Width = 16, Height = 16, Margin = new Thickness(0, 0, 12, 0), VerticalAlignment = VerticalAlignment.Center });
+            var text = new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
+            Grid.SetColumn(text, 1);
+            g.Children.Add(text);
+            Grid.SetColumn(box, 2);
+            g.Children.Add(box);
+            rows.Add(g);
+        }
+        if (rows.Count == 0) rows.Add(Hint("Nenhum ícone de bandeja no momento."));
+
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock { Text = "Mostrar na barra", FontSize = 14, Margin = new Thickness(0, 12, 0, 2) });
+        stack.Children.Add(new TextBlock { Text = "Desmarcados ficam no ⌄. Os que não couberem na barra também vão para lá.", FontSize = 12, Opacity = 0.65, Margin = new Thickness(0, 0, 0, 4) });
+        foreach (var r in rows) stack.Children.Add(r);
+        return Card(stack);
+    }
 
     private UIElement PinnedPage()
     {

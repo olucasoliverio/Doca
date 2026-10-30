@@ -1,4 +1,4 @@
-using System.Collections.Concurrent;
+﻿using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -172,6 +172,7 @@ internal static class Shell
     #region Names
 
     private static readonly Dictionary<string, string> nameCache = new(StringComparer.OrdinalIgnoreCase);
+    public static string CacheStats => $"icons={iconCache.Count} names={nameCache.Count} iconQueue={queue.Count}";
 
     public static string AppName(string path)
     {

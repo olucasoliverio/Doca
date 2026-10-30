@@ -54,6 +54,9 @@ internal sealed class DocaConfig
     /// <summary>Order of tray icons in the menu bar (NotifyIcon identifiers); unknown icons go last.</summary>
     public List<string> TrayOrder { get; set; } = new();
 
+    /// <summary>Tray icons the user collapsed behind the ⌄ button (NotifyIcon identifiers).</summary>
+    public List<string> TrayCollapsed { get; set; } = new();
+
     /// <summary>Taskbar auto-hide state before Doca changed it; kept on disk so a crash can still restore it.</summary>
     public bool? TaskbarAutoHideBefore { get; set; }
 
