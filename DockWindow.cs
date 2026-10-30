@@ -667,7 +667,7 @@ internal sealed class DockWindow : Window
         {
             slideFrom = items.ToDictionary(i => i, i => i.X + i.DrawOffset);
             if (it.Pin != null) slideFrom[it] = dragX - dragGrab;
-            if (remove) cfg.Pinned.Remove(it.Pin);
+            if (remove) cfg.Pinned.Remove(it.Pin!);
             cfg.Save();
             Rebuild();
         }

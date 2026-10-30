@@ -34,9 +34,11 @@ public partial class App : Application
             catch (AbandonedMutexException) { created = true; }
         }
         if (!created) { Shutdown(); return; }
+        Watchdog.Spawn();
 
         DispatcherUnhandledException += (_, ex) => { Log(ex.Exception); ex.Handled = true; };
-        AppDomain.CurrentDomain.UnhandledException += (_, ex) => { Log(ex.ExceptionObject as Exception); Cleanup(); };
+        // A fatal error still gives the screen back, but leaves the exit "unclean" so the watchdog restarts Doca.
+        AppDomain.CurrentDomain.UnhandledException += (_, ex) => { Log(ex.ExceptionObject as Exception); Cleanup(clean: false); };
         AppDomain.CurrentDomain.ProcessExit += (_, _) => Cleanup();
         SessionEnding += (_, _) => Cleanup();
 
@@ -129,7 +131,7 @@ public partial class App : Application
     }
 
     /// <summary>Gives the screen back exactly as it was: AppBar space released, taskbar restored.</summary>
-    private void Cleanup()
+    private void Cleanup(bool clean = true)
     {
         if (cleaned) return;
         cleaned = true;
@@ -143,6 +145,7 @@ public partial class App : Application
             if (cfg != null) Taskbar.Restore(cfg);
         }
         catch (Exception ex) { Log(ex); }
+        if (clean) Watchdog.MarkCleanExit();
         try { mutex?.ReleaseMutex(); } catch { }
     }
 

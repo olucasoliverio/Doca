@@ -110,7 +110,7 @@ internal abstract class Flyout : Window
 
     #region Building blocks
 
-    protected static TextBlock Title(string text) => new() { Text = text, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 8) };
+    protected static TextBlock Heading(string text) => new() { Text = text, FontSize = 15, FontWeight = FontWeights.SemiBold, Margin = new Thickness(2, 0, 0, 8) };
 
     protected static TextBlock Caption(string text) => new() { Text = text, FontSize = 12, Opacity = 0.6, Margin = new Thickness(2, 10, 0, 4) };
 
@@ -262,7 +262,7 @@ internal sealed class SoundFlyout : Flyout
 
     public SoundFlyout(DocaConfig cfg) : base(cfg, 330)
     {
-        Body.Children.Add(Title("Som"));
+        Body.Children.Add(Heading("Som"));
 
         var row = new Grid();
         row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
@@ -340,7 +340,7 @@ internal sealed class BluetoothFlyout : Flyout
     public BluetoothFlyout(DocaConfig cfg) : base(cfg, 330)
     {
         var header = new Grid();
-        header.Children.Add(Title("Bluetooth"));
+        header.Children.Add(Heading("Bluetooth"));
         header.Children.Add(power);
         Body.Children.Add(header);
         Body.Children.Add(list);
@@ -420,7 +420,7 @@ internal sealed class WifiFlyout : Flyout
     public WifiFlyout(DocaConfig cfg) : base(cfg, 340)
     {
         var header = new Grid();
-        header.Children.Add(Title("Wi-Fi"));
+        header.Children.Add(Heading("Wi-Fi"));
         var rescan = new Button { Content = Glyph("", 12), VerticalAlignment = VerticalAlignment.Top, Padding = new Thickness(8, 5, 8, 5), Background = Brushes.Transparent, BorderThickness = new Thickness(0), ToolTip = "Procurar redes" };
         rescan.Click += (_, _) => { Wlan.Scan(); status.Text = "Procurando redes…"; refresh.Stop(); refresh.Start(); };
         var power = new CheckBox { MinWidth = 0, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(4, 0, 0, 0), ToolTip = "Ligar/desligar o Wi-Fi", Visibility = Visibility.Collapsed };

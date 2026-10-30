@@ -40,6 +40,7 @@ internal sealed class AppBar : IDisposable
             var abd = Data();
             Native.SHAppBarMessage(Native.ABM_NEW, ref abd);
             registered = true;
+            lock (active) { active.Add(hwnd); Watchdog.SaveAppBars(active); }
         }
         Apply();
     }
@@ -66,7 +67,11 @@ internal sealed class AppBar : IDisposable
         var abd = Data();
         Native.SHAppBarMessage(Native.ABM_REMOVE, ref abd);
         registered = false;
+        lock (active) { active.Remove(hwnd); Watchdog.SaveAppBars(active); }
     }
+
+    /// <summary>Registered AppBar windows, persisted so the watchdog can release them after a crash.</summary>
+    private static readonly HashSet<IntPtr> active = new();
 
     private IntPtr WndProc(IntPtr h, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
@@ -156,6 +161,12 @@ internal static class Taskbar
     {
         if (!hidden) return;
         hidden = false;
+        ForceRestore(cfg);
+    }
+
+    /// <summary>Shows the taskbar and puts back its auto-hide state (also used by the watchdog after a crash).</summary>
+    public static void ForceRestore(DocaConfig cfg)
+    {
         foreach (var h in Windows()) Native.ShowWindow(h, Native.SW_SHOWNA);
         SetAutoHide(cfg.TaskbarAutoHideBefore ?? false);
         cfg.TaskbarAutoHideBefore = null;

@@ -1,52 +1,56 @@
 # Doca
 
-Dock e barra de menu estilo macOS para Windows 11, em um único processo .NET 10 / WPF.
+Dock e barra de menu estilo macOS para Windows 11, em .NET 10 / WPF.
 
-## Rodar
+## Instalar / atualizar
+
+```powershell
+.\install.ps1             # publica em %LOCALAPPDATA%\Programs\Doca, cria atalho no Menu Iniciar e inicia
+.\install.ps1 -Startup    # idem + iniciar com o Windows
+.\install.ps1 -Uninstall  # remove (preferências ficam em %APPDATA%\Doca)
+```
+
+A cópia instalada é separada da pasta do código: dá para compilar e testar sem fechar o Doca em uso.
+
+## Desenvolver
 
 ```powershell
 dotnet build -c Release
-.\bin\Release\net10.0-windows\Doca.exe              # modo normal (esconde a taskbar)
-.\bin\Release\net10.0-windows\Doca.exe --preview    # testa sem mexer na taskbar
-.\bin\Release\net10.0-windows\Doca.exe --quit       # fecha a instância aberta e restaura tudo
+.\bin\Release\net10.0-windows\Doca.exe --preview   # não mexe na taskbar
 ```
 
-Ou abra `Doca.csproj` no Visual Studio e pressione F5.
+Linha de comando: `--quit` fecha a instância aberta (restaurando tudo), `--settings` abre as Preferências, `--preview` testa sem esconder a taskbar.
 
-Executável único para copiar para outra pasta:
+Antes de publicar uma mudança grande, passe pela [lista de testes](TESTES.md).
 
-```powershell
-dotnet publish -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -o publish
-```
+## Recursos
 
-## Configuração
+- **Dock** (uma por tela): ampliação, esconder automaticamente, badges de notificação, pré-visualização de janelas, arrastar para reordenar/fixar/remover, lixeira.
+- **Barra de menu** (uma por tela): menus do app em foco, ícones da bandeja (inclusive os escondidos), painéis próprios de calendário, som (volume e saída), Wi-Fi e Bluetooth.
+- Some só na tela que tem um app em tela cheia; cantos arredondados; Alt+` alterna janelas do mesmo app.
+- Tudo configurável em **Preferências** (logo da barra → Preferências do Doca…).
 
-`%APPDATA%\Doca\config.json`. Na primeira execução, os apps fixados e os tamanhos dos ícones são importados do MyDockFinder.
-Use "Preferências do Doca…" no menu do logo e depois "Reiniciar o Doca".
+## Recuperação automática
 
-## Dock
+O Doca inicia um processo vigia (`Doca.exe --watchdog <pid>`, sem interface). Se o Doca terminar sem passar pela saída normal:
 
-- Clique: abre o app, traz para frente, minimiza (se já estiver em foco) ou alterna entre as janelas
-- Shift+clique ou clique do meio: nova instância
-- Botão direito: lista de janelas, Manter na Dock / Remover, Mostrar no Explorador, Encerrar
-- Arrastar arquivo, atalho ou .exe para a Dock: fixa o item
-- Botão direito no fundo da Dock: ampliação e ocultar automaticamente
+| Como terminou | O vigia |
+|---|---|
+| Travamento | libera o espaço das barras, restaura a taskbar e reabre o Doca (até 3 vezes em 2 minutos) |
+| "Finalizar tarefa" no Gerenciador | libera o espaço e restaura a taskbar, sem reabrir |
 
-## Barra de menu
+Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 
-- Logo: menu do sistema (Sobre, Configurações, Suspender, Reiniciar, Desligar, Bloquear, iniciar com o Windows, sair)
-- Nome do app em foco: ocultar o app, ocultar os outros, minimizar, maximizar ou fechar a janela, encerrar o app
-- Volume: role a roda do mouse para ajustar, botão direito para silenciar
-- Wi-Fi, volume e bateria abrem as Configurações rápidas (Win+A); o relógio abre a Central de notificações (Win+N)
+## Arquitetura
 
-## Por que é mais fluido que o MyDockFinder
-
-| | MyDockFinder | Doca |
-|---|---|---|
-| Composição | `UpdateLayeredWindow`: a CPU monta um bitmap e copia para o DWM a cada frame | Superfície DWM direto na GPU (`DwmExtendFrameIntoClientArea`) |
-| Ritmo da animação | `SetTimer` (resolução de ~15,6 ms, sem vsync) | `CompositionTarget.Rendering`, sincronizado com o vsync, com suavização independente do frame rate |
-| Em repouso | timers ativos | loop desligado e atualização por eventos (WinEvent hooks): CPU ≈ 0 |
-| Ícones | — | carregados numa thread STA separada e pré-escalados, sem travar a UI |
-| Barra superior | — | registrada como AppBar (janelas maximizadas param nela), some em apps de tela cheia e se registra de novo se o Explorer reiniciar |
-
-Se o Doca for fechado à força e a taskbar ficar escondida, rode o Doca de novo e use "Sair do Doca", ou reinicie o Explorer.
+| Arquivo | Responsabilidade |
+|---|---|
+| `DockWindow.cs` | Dock: layout, animação (vsync, só quando algo se move), entrada, arrastar |
+| `MenuBarWindow.cs` | Barra de menu e itens de status |
+| `Flyouts.cs` | Painéis de calendário, som, Wi-Fi e Bluetooth |
+| `AppMenus.cs` | Menus do app (Win32, UI Automation ou menus padrão) |
+| `WindowTracker.cs` | Janelas abertas e tela cheia por monitor (WinEvent hooks) |
+| `Tray.cs` | Bandeja do sistema (ManagedShell) e badges |
+| `Preview.cs`, `Corners.cs`, `Hotkeys.cs` | Miniaturas DWM, cantos arredondados, Alt+` |
+| `Audio.cs`, `Wlan.cs`, `Bluetooth.cs` | Core Audio, Wi-Fi nativo, rádios e dispositivos Bluetooth |
+| `AppBar.cs`, `Watchdog.cs`, `Program.cs` | Reserva de espaço, taskbar, recuperação |
