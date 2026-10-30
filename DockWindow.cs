@@ -246,6 +246,14 @@ internal sealed class DockWindow : Window
             var it = Get(p.Key, DockItemKind.App);
             it.Pin = p;
             it.App = running.GetValueOrDefault(p.Key);
+            // The pin matched through Shell.AppKey but points at an old version folder: follow the update
+            // so launching from the Dock keeps working after the running copy closes.
+            if (p.Aumid == null && p.ResolvedPath == null && it.App?.ExePath is { } exe &&
+                !string.Equals(p.Path, exe, StringComparison.OrdinalIgnoreCase) && !File.Exists(p.Path))
+            {
+                p.Path = exe;
+                cfg.Save();
+            }
             SetName(it, p.Name ?? it.App?.Name ?? (p.Aumid != null ? Shell.DisplayName(@"shell:AppsFolder\" + p.Aumid) : null) ?? Shell.AppName(p.ResolvedPath ?? p.Path ?? ""));
             SetIcon(it, p.Aumid != null ? @"shell:AppsFolder\" + p.Aumid : p.ResolvedPath ?? p.Path ?? "");
             desired.Add(it);

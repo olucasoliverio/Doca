@@ -232,7 +232,7 @@ internal sealed class WindowTracker : IDisposable
                 Name = Shell.DisplayName(@"shell:AppsFolder\" + aumid) ?? Native.WindowTitle(h),
             };
         }
-        return new RunningApp { Key = path.ToLowerInvariant(), ExePath = path, Name = Shell.AppName(path) };
+        return new RunningApp { Key = Shell.AppKey(path), ExePath = path, Name = Shell.AppName(path) };
     }
 
     public void Dispose()

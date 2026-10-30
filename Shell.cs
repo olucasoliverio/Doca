@@ -2,6 +2,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -208,6 +209,38 @@ internal static class Shell
             return nameCache["dn:" + parsingName] = s;
         }
         finally { Marshal.ReleaseComObject(item); }
+    }
+
+    /// <summary>
+    /// Identity of an exe that survives app updates, used to match pinned items with running windows.
+    /// Packaged apps live in WindowsApps\Name_1.2.3.0_x64__publisher and Squirrel apps (Discord, Teams)
+    /// in app-1.2.3; both change folder on every update, which left a stale pin next to the running copy.
+    /// </summary>
+    public static string AppKey(string path)
+    {
+        string key = path.ToLowerInvariant();
+        key = Regex.Replace(key, @"(\\windowsapps\\[^\\_]+)_[\d.]+_", "$1_");
+        return Regex.Replace(key, @"\\app-[\d.]+\\", @"\app\");
+    }
+
+    /// <summary>
+    /// Current exe of a Squirrel app whose pinned version folder was removed by an update.
+    /// WindowsApps cannot be listed without admin, so packaged apps are healed from their running window instead.
+    /// </summary>
+    public static string? UpdatedSquirrelPath(string path)
+    {
+        var m = Regex.Match(path, @"^(.*)\\app-[\d.]+\\(.+)$", RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        try
+        {
+            return Directory.GetDirectories(m.Groups[1].Value, "app-*")
+                .Select(d => (dir: d, ver: Version.TryParse(Path.GetFileName(d)[4..], out var v) ? v : null))
+                .Where(d => d.ver != null && File.Exists(Path.Combine(d.dir, m.Groups[2].Value)))
+                .OrderByDescending(d => d.ver)
+                .Select(d => Path.Combine(d.dir, m.Groups[2].Value))
+                .FirstOrDefault();
+        }
+        catch { return null; }
     }
 
     /// <summary>AppUserModelID of a window (used for UWP apps hosted by ApplicationFrameHost).</summary>

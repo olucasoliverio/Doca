@@ -24,7 +24,7 @@ internal sealed class PinnedApp
         ?? Shell.AppName(ResolvedPath ?? Path ?? "");
 
     [JsonIgnore]
-    public string Key => Aumid != null ? "aumid:" + Aumid.ToLowerInvariant() : (ResolvedPath ?? Path ?? "").ToLowerInvariant();
+    public string Key => Aumid != null ? "aumid:" + Aumid.ToLowerInvariant() : Shell.AppKey(ResolvedPath ?? Path ?? "");
 }
 
 internal sealed class DocaConfig
@@ -98,6 +98,8 @@ internal sealed class DocaConfig
     {
         if (p.Path != null && p.Path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
             p.ResolvedPath = Shell.ResolveShortcut(p.Path);
+        else if (p.Path != null && !File.Exists(p.Path) && Shell.UpdatedSquirrelPath(p.Path) is { } updated)
+            p.Path = updated;
     }
 
     /// <summary>First run: import pinned apps and sizes from MyDockFinder when it is installed.</summary>
