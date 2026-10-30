@@ -62,26 +62,34 @@ internal sealed class SpotlightWindow : Window
         FontFamily = new FontFamily(cfg.Font);
         Foreground = Brushes.White;
         UseLayoutRounding = true;
+        // Small text (result rows) snaps to pixels like the menu bar; Ideal mode looks soft at 11–15 px.
+        // The big search text keeps Ideal, where Display mode's hinting would make it uneven.
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        var display = new FontFamily("Segoe UI Variable Display, Segoe UI");
 
         // Plain (non-Fluent) TextBox: the Fluent template draws its own field and focus underline,
         // but here the whole window is the field.
+        // "Variable Display" is the optical size Segoe UI ships for large text; the window font
+        // ("Variable Text") is cut for 9–14 px and looks wide and heavy at 24.
         box = new TextBox
         {
-            FontSize = 22, Foreground = Brushes.White, CaretBrush = Brushes.White, Background = Brushes.Transparent,
+            FontSize = 24, FontFamily = display, FontWeight = FontWeight.FromOpenTypeWeight(350), Foreground = Brushes.White, CaretBrush = Brushes.White, Background = Brushes.Transparent,
             BorderThickness = new Thickness(0), VerticalContentAlignment = VerticalAlignment.Center, Padding = new Thickness(0),
             SelectionBrush = selectedBrush,
         };
+        TextOptions.SetTextFormattingMode(box, TextFormattingMode.Ideal);
         var placeholder = new TextBlock
         {
-            Text = "Pesquisar apps, configurações, contas…", FontSize = 22, Opacity = 0.4,
+            Text = "Pesquisar apps, configurações, contas…", FontSize = 24, FontFamily = display, FontWeight = FontWeight.FromOpenTypeWeight(350), Opacity = 0.35,
             VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false, Margin = new Thickness(2, 0, 0, 0),
         };
+        TextOptions.SetTextFormattingMode(placeholder, TextFormattingMode.Ideal);
         var field = new Grid();
         field.Children.Add(placeholder);
         field.Children.Add(box);
 
         var search = new DockPanel { Margin = new Thickness(18, 12, 18, 12) };
-        var lens = new TextBlock { Text = "", FontFamily = new FontFamily(IconFont), FontSize = 20, Opacity = 0.7, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) };
+        var lens = new TextBlock { Text = "", FontFamily = new FontFamily(IconFont), FontSize = 22, Opacity = 0.55, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(2, 0, 14, 0) };
         DockPanel.SetDock(lens, Dock.Left);
         search.Children.Add(lens);
         search.Children.Add(field);
@@ -247,12 +255,12 @@ internal sealed class SpotlightWindow : Window
         }
 
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        texts.Children.Add(new TextBlock { Text = it.Name, FontSize = 14, TextTrimming = TextTrimming.CharacterEllipsis });
-        texts.Children.Add(new TextBlock { Text = it.Detail, FontSize = 11, Opacity = 0.6, TextTrimming = TextTrimming.CharacterEllipsis });
+        texts.Children.Add(new TextBlock { Text = it.Name, FontSize = 15, TextTrimming = TextTrimming.CharacterEllipsis });
+        texts.Children.Add(new TextBlock { Text = it.Detail, FontSize = 12, Opacity = 0.65, Margin = new Thickness(0, 1, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
         Grid.SetColumn(texts, 1);
         g.Children.Add(texts);
 
-        var row = new Border { Child = g, Padding = new Thickness(10, 6, 10, 6), CornerRadius = new CornerRadius(7), Background = Brushes.Transparent };
+        var row = new Border { Child = g, Padding = new Thickness(10, 7, 10, 7), CornerRadius = new CornerRadius(8), Background = Brushes.Transparent };
         row.MouseEnter += (_, _) => { if (index != selected) row.Background = hoverBrush; };
         row.MouseLeave += (_, _) => { if (index != selected) row.Background = Brushes.Transparent; };
         row.MouseLeftButtonUp += (_, _) => Run(it);
