@@ -208,15 +208,14 @@ internal sealed class TrayIconsPanel : StackPanel
         {
             Child = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center },
             Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(1, 3, 1, 3), CornerRadius = new CornerRadius(6),
-            Background = Brushes.Transparent, ToolTip = "Ícones recolhidos", Visibility = Visibility.Collapsed,
+            Background = Brushes.Transparent, ToolTip = "Ícones da bandeja: recolher ou mostrar", Visibility = Visibility.Collapsed,
         };
         chevron.MouseEnter += (_, _) => chevron.Background = hover;
         chevron.MouseLeave += (_, _) => { if (!dragging) chevron.Background = Brushes.Transparent; };
         chevron.MouseLeftButtonUp += (_, _) =>
         {
             if (dragging) return;
-            var list = overflow.ToList();
-            Flyout.Toggle("tray-overflow", chevron, () => new TrayOverflowFlyout(cfg, hover, list));
+            Flyout.Toggle("tray-overflow", chevron, () => new TrayOverflowFlyout(cfg, hover, () => overflow));
         };
         Children.Add(chevron);
         Children.Add(icons);
@@ -268,8 +267,9 @@ internal sealed class TrayIconsPanel : StackPanel
         var inBar = all.Where(i => !IsCollapsed(cfg, i)).ToList();
         int fit = Fit(available);
         foreach (var icon in inBar.Take(fit)) icons.Children.Add(Button(icon));
-        overflow = inBar.Skip(fit).Concat(all.Where(i => IsCollapsed(cfg, i))).ToList();
-        chevron.Visibility = overflow.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        overflow = inBar.Skip(fit).ToList(); // did not fit (collapsed ones are listed separately)
+        // Always there while the app has tray icons: it is how icons get collapsed or shown again.
+        chevron.Visibility = all.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private static bool IsBuiltIn(NotifyIcon icon)
@@ -414,58 +414,116 @@ internal sealed class TrayIconsPanel : StackPanel
     }
 }
 
-/// <summary>Drop-down with the tray icons that did not fit or were collapsed. 📌 brings a collapsed icon back to the bar.</summary>
+/// <summary>
+/// The ⌄ panel: every tray icon, grouped into "Recolhidos" / "Na barra" (and "Sem espaço" when the bar is full).
+/// Hovering an icon shows a button to collapse it or bring it back; clicking the icon itself talks to the app.
+/// </summary>
 internal sealed class TrayOverflowFlyout : Flyout
 {
-    public TrayOverflowFlyout(DocaConfig cfg, Brush hover, List<NotifyIcon> icons) : base(cfg, 276)
-    {
-        var grid = new WrapPanel();
-        foreach (var icon in icons)
-        {
-            var b = TrayIconsPanel.Visual(icon);
-            b.Padding = new Thickness(10, 8, 10, 8);
-            b.Margin = new Thickness(2);
-            b.MouseEnter += (_, _) => { b.Background = hover; TrayIconsPanel.Place(b, icon); icon.IconMouseEnter(TrayIconsPanel.MousePos()); };
-            b.MouseLeave += (_, _) => { b.Background = Brushes.Transparent; icon.IconMouseLeave(TrayIconsPanel.MousePos()); };
-            b.MouseMove += (_, _) => icon.IconMouseMove(TrayIconsPanel.MousePos());
-            b.MouseDown += (_, e) => { e.Handled = true; TrayIconsPanel.Place(b, icon); };
-            // Down+up together on release: the app's menu will take focus and close this flyout right after.
-            b.MouseUp += (_, e) =>
-            {
-                e.Handled = true;
-                icon.IconMouseDown(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
-                icon.IconMouseUp(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
-            };
+    private readonly DocaConfig cfg;
+    private readonly Brush hover;
+    private readonly Func<List<NotifyIcon>> noRoom;
+    private readonly StackPanel content = new();
 
-            var tile = new Grid();
-            tile.Children.Add(b);
-            if (TrayIconsPanel.IsCollapsed(cfg, icon))
-            {
-                var pin = new TextBlock
-                {
-                    Text = "", FontFamily = new FontFamily(IconFont), FontSize = 10, Padding = new Thickness(3),
-                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
-                    Visibility = Visibility.Hidden, Background = Brushes.Transparent, ToolTip = "Mostrar na barra",
-                };
-                pin.MouseLeftButtonUp += (_, e) =>
-                {
-                    e.Handled = true;
-                    cfg.TrayCollapsed.Remove(icon.Identifier ?? "");
-                    cfg.Save();
-                    TrayIconsPanel.RaiseChanged();
-                    CloseFlyout();
-                };
-                tile.MouseEnter += (_, _) => pin.Visibility = Visibility.Visible;
-                tile.MouseLeave += (_, _) => pin.Visibility = Visibility.Hidden;
-                tile.Children.Add(pin);
-            }
-            grid.Children.Add(tile);
-        }
-        Body.Children.Add(grid);
-        Body.Children.Add(new TextBlock
+    public TrayOverflowFlyout(DocaConfig cfg, Brush hover, Func<List<NotifyIcon>> noRoom) : base(cfg, 300)
+    {
+        this.cfg = cfg;
+        this.hover = hover;
+        this.noRoom = noRoom;
+        Body.Children.Add(content);
+        Body.Children.Add(Divider());
+        Body.Children.Add(Footer(
+            Link("Recolher todos", () => SetAll(collapse: true), close: false),
+            Link("Mostrar todos", () => SetAll(collapse: false), close: false)));
+        Fill();
+    }
+
+    private void Fill()
+    {
+        content.Children.Clear();
+        var all = TrayIconsPanel.Ordered(cfg);
+        var collapsed = all.Where(i => TrayIconsPanel.IsCollapsed(cfg, i)).ToList();
+        var full = noRoom().Where(i => !TrayIconsPanel.IsCollapsed(cfg, i)).ToList();
+        var inBar = all.Except(collapsed).Except(full).ToList();
+
+        Section("Recolhidos", collapsed, "", "Mostrar na barra", "Nenhum. Passe o mouse num ícone abaixo e clique em ⌄ para recolher.");
+        if (full.Count > 0) Section("Sem espaço na barra", full, "", "Recolher", null);
+        Section("Na barra", inBar, "", "Recolher", null);
+    }
+
+    private void Section(string title, List<NotifyIcon> icons, string actionGlyph, string actionTip, string? empty)
+    {
+        if (icons.Count == 0 && empty == null) return;
+        content.Children.Add(Caption(title));
+        if (icons.Count == 0)
         {
-            Text = "Arraste um ícone da barra até ⌄ para recolhê-lo. Passe o mouse e clique em 📌 para trazê-lo de volta.",
-            FontSize = 11, Opacity = 0.6, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 8, 2, 0),
-        });
+            content.Children.Add(new TextBlock { Text = empty, FontSize = 11, Opacity = 0.55, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 0, 2, 4) });
+            return;
+        }
+        var grid = new WrapPanel();
+        foreach (var icon in icons) grid.Children.Add(Tile(icon, actionGlyph, actionTip));
+        content.Children.Add(grid);
+    }
+
+    private Grid Tile(NotifyIcon icon, string actionGlyph, string actionTip)
+    {
+        var b = TrayIconsPanel.Visual(icon);
+        b.Padding = new Thickness(11, 9, 11, 9);
+        b.Margin = new Thickness(2);
+        b.MouseEnter += (_, _) => { b.Background = hover; TrayIconsPanel.Place(b, icon); icon.IconMouseEnter(TrayIconsPanel.MousePos()); };
+        b.MouseLeave += (_, _) => { b.Background = Brushes.Transparent; icon.IconMouseLeave(TrayIconsPanel.MousePos()); };
+        b.MouseMove += (_, _) => icon.IconMouseMove(TrayIconsPanel.MousePos());
+        b.MouseDown += (_, e) => { e.Handled = true; TrayIconsPanel.Place(b, icon); };
+        // Down+up together on release: the app's menu takes focus and closes this panel right after.
+        b.MouseUp += (_, e) =>
+        {
+            e.Handled = true;
+            icon.IconMouseDown(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
+            icon.IconMouseUp(e.ChangedButton, TrayIconsPanel.MousePos(), TrayIconsPanel.DoubleClick());
+        };
+
+        var action = new Border
+        {
+            Child = new TextBlock { Text = actionGlyph, FontFamily = new FontFamily(IconFont), FontSize = 9, Foreground = Brushes.White },
+            Background = new SolidColorBrush(Color.FromRgb(0x0A, 0x63, 0xD9)),
+            CornerRadius = new CornerRadius(8), Padding = new Thickness(3),
+            HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+            Visibility = Visibility.Hidden, ToolTip = actionTip, Cursor = Cursors.Hand,
+        };
+        action.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            Toggle(icon);
+        };
+
+        var tile = new Grid();
+        tile.Children.Add(b);
+        tile.Children.Add(action);
+        tile.MouseEnter += (_, _) => action.Visibility = Visibility.Visible;
+        tile.MouseLeave += (_, _) => action.Visibility = Visibility.Hidden;
+        return tile;
+    }
+
+    private void Toggle(NotifyIcon icon)
+    {
+        string id = icon.Identifier ?? "";
+        if (id.Length == 0) return;
+        if (!cfg.TrayCollapsed.Remove(id)) cfg.TrayCollapsed.Add(id);
+        Apply();
+    }
+
+    private void SetAll(bool collapse)
+    {
+        cfg.TrayCollapsed.Clear();
+        if (collapse) cfg.TrayCollapsed.AddRange(TrayIconsPanel.Ordered(cfg).Select(i => i.Identifier).OfType<string>());
+        Apply();
+    }
+
+    private void Apply()
+    {
+        cfg.Save();
+        TrayIconsPanel.RaiseChanged();
+        // The bars re-layout first; refresh this panel after so "Sem espaço" is accurate.
+        Dispatcher.BeginInvoke(Fill, System.Windows.Threading.DispatcherPriority.Background);
     }
 }
