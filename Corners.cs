@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Shapes;
@@ -15,7 +15,14 @@ internal sealed class CornerWindow : Window
     private readonly IntPtr monitor;
     private readonly int corner; // 0 TL, 1 TR, 2 BL, 3 BR
     private readonly double radius;
-    private readonly DispatcherTimer keepOnTop = new() { Interval = TimeSpan.FromSeconds(2) };
+    private static readonly List<CornerWindow> all = new();
+    private static DispatcherTimer? safety;
+
+    /// <summary>Puts the corners back above other topmost windows (our bars included) after something reappears.</summary>
+    public static void BringAllToTop()
+    {
+        foreach (var c in all) c.Place();
+    }
 
     public static List<CornerWindow> CreateFor(Native.Monitor m, double radius)
     {
@@ -63,10 +70,15 @@ internal sealed class CornerWindow : Window
             Place();
         };
         DpiChanged += (_, _) => Place();
-        // Other topmost windows (our bars included) can end up above; re-assert cheaply.
-        keepOnTop.Tick += (_, _) => Place();
-        keepOnTop.Start();
-        Closed += (_, _) => keepOnTop.Stop();
+        // Re-asserted on events (BringAllToTop) plus a slow safety check, not on a fast timer.
+        all.Add(this);
+        Closed += (_, _) => all.Remove(this);
+        if (safety == null)
+        {
+            safety = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+            safety.Tick += (_, _) => BringAllToTop();
+            safety.Start();
+        }
     }
 
     private void Place()

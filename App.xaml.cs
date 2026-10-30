@@ -58,6 +58,22 @@ public partial class App : Application
         WindowCycler.Start(cfg, tracker);
         CreateScreens();
         if (e.Args.Contains("--settings")) ShowSettings();
+        tracker.FullscreenChanged += CornerWindow.BringAllToTop;
+
+        // Safety net: Explorer sometimes re-shows its taskbar without a "show" event we can see.
+        var taskbarGuard = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(10) };
+        taskbarGuard.Tick += (_, _) => Taskbar.EnsureHidden();
+        taskbarGuard.Start();
+
+        // Startup decodes dozens of icons; give that one-time garbage back once things settle.
+        var settle = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(20) };
+        settle.Tick += (_, _) =>
+        {
+            settle.Stop();
+            System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
+            GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
+        };
+        settle.Start();
 
         // Monitors plugged/unplugged or resolution changed: rebuild the bar and Dock of every screen.
         var displayDebounce = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
@@ -90,6 +106,8 @@ public partial class App : Application
                 docks.Add(d);
             }
         }
+        // Bars and Docks are topmost too; corners go above them.
+        Dispatcher.BeginInvoke(CornerWindow.BringAllToTop, System.Windows.Threading.DispatcherPriority.Background);
     }
 
     private System.Windows.Threading.DispatcherTimer? screensDebounce;

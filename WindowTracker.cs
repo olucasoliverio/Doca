@@ -32,6 +32,9 @@ internal sealed class WindowTracker : IDisposable
     private readonly uint ownPid = (uint)Environment.ProcessId;
     private readonly DispatcherTimer fullscreenCheck;
     private HashSet<IntPtr> fullscreenMonitors = new();
+    private HashSet<IntPtr> known = new(); // app windows seen in the last refresh
+    private IntPtr locationHook;
+    private uint locationPid;
 
     public List<RunningApp> Apps { get; private set; } = new();
     public IntPtr Foreground { get; private set; }
@@ -59,27 +62,50 @@ internal sealed class WindowTracker : IDisposable
         Hook(Native.EVENT_SYSTEM_MINIMIZESTART, Native.EVENT_SYSTEM_MINIMIZEEND);
         Hook(Native.EVENT_OBJECT_CREATE, Native.EVENT_OBJECT_HIDE);
         Hook(Native.EVENT_OBJECT_CLOAKED, Native.EVENT_OBJECT_UNCLOAKED);
-        Hook(Native.EVENT_OBJECT_LOCATIONCHANGE, Native.EVENT_OBJECT_LOCATIONCHANGE);
 
         Refresh();
         OnForeground(Native.GetForegroundWindow());
         CheckFullscreen();
     }
 
+    /// <summary>
+    /// Kept cheap on purpose: the system reports every tooltip, popup and child window. Only events
+    /// about real app windows (or windows we already track) trigger work, and that work is coalesced.
+    /// </summary>
     private void OnWinEvent(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time)
     {
         if (idObject != 0 || idChild != 0 || hwnd == IntPtr.Zero) return;
 
-        if (evt != Native.EVENT_OBJECT_DESTROY &&
-            (Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE).ToInt64() & Native.WS_CHILD) != 0)
-            return;
-
-        // Any top-level move/resize/show/hide can start or end fullscreen (e.g. a Chrome video).
-        if (!fullscreenCheck.IsEnabled) fullscreenCheck.Start();
-
-        if (evt == Native.EVENT_OBJECT_LOCATIONCHANGE) return;
-        if (evt == Native.EVENT_SYSTEM_FOREGROUND) { OnForeground(hwnd); return; }
+        switch (evt)
+        {
+            case Native.EVENT_SYSTEM_FOREGROUND:
+                OnForeground(hwnd);
+                ScheduleFullscreenCheck();
+                return;
+            case Native.EVENT_OBJECT_LOCATIONCHANGE:
+                // Hooked for the foreground app only: entering/leaving fullscreen (F11, a video) resizes it.
+                if ((Native.GetWindowLongPtr(hwnd, Native.GWL_STYLE).ToInt64() & Native.WS_CHILD) == 0) ScheduleFullscreenCheck();
+                return;
+            case Native.EVENT_OBJECT_CREATE:
+                return; // windows are created hidden; SHOW follows
+            case Native.EVENT_OBJECT_SHOW:
+                if (Taskbar.IsTaskbar(hwnd)) Taskbar.EnsureHidden();
+                if (!known.Contains(hwnd) && !IsAppWindow(hwnd)) return;
+                break;
+            case Native.EVENT_OBJECT_UNCLOAKED:
+                if (!known.Contains(hwnd) && !IsAppWindow(hwnd)) return;
+                break;
+            default: // hide, destroy, cloak, minimize: only matters for windows we track
+                if (!known.Contains(hwnd)) return;
+                break;
+        }
+        ScheduleFullscreenCheck();
         if (!coalesce.IsEnabled) coalesce.Start();
+    }
+
+    private void ScheduleFullscreenCheck()
+    {
+        if (!fullscreenCheck.IsEnabled) fullscreenCheck.Start();
     }
 
     private void OnForeground(IntPtr hwnd)
@@ -87,8 +113,19 @@ internal sealed class WindowTracker : IDisposable
         if (Native.GetWindowThreadProcessId(hwnd, out uint pid) == 0 || pid == ownPid) return;
         Foreground = hwnd;
         ForegroundApp = Describe(hwnd);
+        WatchLocationOf(pid);
         ForegroundChanged?.Invoke();
         if (!coalesce.IsEnabled) coalesce.Start();
+    }
+
+    /// <summary>Move/resize events are frequent system-wide; listen to the foreground process only.</summary>
+    private void WatchLocationOf(uint pid)
+    {
+        if (pid == locationPid) return;
+        if (locationHook != IntPtr.Zero) Native.UnhookWinEvent(locationHook);
+        locationPid = pid;
+        locationHook = Native.SetWinEventHook(Native.EVENT_OBJECT_LOCATIONCHANGE, Native.EVENT_OBJECT_LOCATIONCHANGE,
+            IntPtr.Zero, proc, pid, 0, Native.WINEVENT_OUTOFCONTEXT);
     }
 
     public bool IsFullscreen(IntPtr monitor) => fullscreenMonitors.Contains(monitor);
@@ -158,6 +195,7 @@ internal sealed class WindowTracker : IDisposable
         bool changed = ordered.Count != Apps.Count ||
                        ordered.Zip(Apps).Any(p => p.First.Key != p.Second.Key || !p.First.Windows.SequenceEqual(p.Second.Windows));
         Apps = ordered;
+        known = ordered.SelectMany(a => a.Windows).ToHashSet();
         if (changed) AppsChanged?.Invoke();
     }
 
@@ -200,6 +238,8 @@ internal sealed class WindowTracker : IDisposable
     public void Dispose()
     {
         foreach (var h in hooks) Native.UnhookWinEvent(h);
+        if (locationHook != IntPtr.Zero) Native.UnhookWinEvent(locationHook);
+        locationHook = IntPtr.Zero;
         hooks.Clear();
     }
 }

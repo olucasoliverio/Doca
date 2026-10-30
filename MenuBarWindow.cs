@@ -364,7 +364,6 @@ internal sealed class MenuBarWindow : Window
         UpdateVolume();
         UpdateBattery();
         if (statusTicks % 3 == 0) _ = UpdateBluetooth();
-        Taskbar.EnsureHidden();
         if (++statusTicks % 20 == 0) UpdateNetwork();
     }
 

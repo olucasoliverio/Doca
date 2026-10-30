@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
 
@@ -105,20 +105,28 @@ internal static class Taskbar
 {
     private static bool hidden;
 
-    private static IEnumerable<IntPtr> Windows()
+    private static List<IntPtr> cached = new();
+
+    /// <summary>Explorer's taskbar windows (primary + secondary monitors), found by class without walking every window.</summary>
+    private static List<IntPtr> Windows()
     {
         var list = new List<IntPtr>();
         uint own = (uint)Environment.ProcessId;
-        Native.EnumWindows((h, _) =>
+        foreach (var cls in new[] { "Shell_TrayWnd", "Shell_SecondaryTrayWnd" })
         {
-            // Skip our own tray host window (ManagedShell registers a Shell_TrayWnd too).
-            if (Native.ClassName(h) is "Shell_TrayWnd" or "Shell_SecondaryTrayWnd" &&
-                Native.GetWindowThreadProcessId(h, out uint pid) != 0 && pid != own)
-                list.Add(h);
-            return true;
-        }, IntPtr.Zero);
+            for (IntPtr h = Native.FindWindowEx(IntPtr.Zero, IntPtr.Zero, cls, null); h != IntPtr.Zero;
+                 h = Native.FindWindowEx(IntPtr.Zero, h, cls, null))
+            {
+                // Skip our own tray host window (ManagedShell registers a Shell_TrayWnd too).
+                if (Native.GetWindowThreadProcessId(h, out uint pid) != 0 && pid != own) list.Add(h);
+            }
+        }
+        cached = list;
         return list;
     }
+
+    /// <summary>Cheap check used on every window "show" event.</summary>
+    public static bool IsTaskbar(IntPtr h) => hidden && cached.Contains(h);
 
     private static bool GetAutoHide()
     {
@@ -131,7 +139,7 @@ internal static class Taskbar
         var abd = new Native.APPBARDATA
         {
             cbSize = Marshal.SizeOf<Native.APPBARDATA>(),
-            hWnd = Native.FindWindow("Shell_TrayWnd", null),
+            hWnd = Windows().FirstOrDefault(),
             lParam = new IntPtr(on ? Native.ABS_AUTOHIDE : Native.ABS_ALWAYSONTOP),
         };
         Native.SHAppBarMessage(Native.ABM_SETSTATE, ref abd);
