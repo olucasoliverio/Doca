@@ -82,6 +82,13 @@ internal abstract class Flyout : Window
         };
         SizeChanged += (_, _) => Place();
         Deactivated += (_, _) => { if (!switching) CloseFlyout(); };
+        // Closed some other way (Alt+F4, app shutdown): don't let the Deactivated that follows call Close again.
+        Closing += (_, _) =>
+        {
+            if (closing) return;
+            closing = true;
+            if (current == this) current = null;
+        };
         KeyDown += (_, e) => { if (e.Key == Key.Escape) CloseFlyout(); };
     }
 

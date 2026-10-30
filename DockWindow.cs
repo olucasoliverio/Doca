@@ -833,7 +833,9 @@ internal sealed class DockWindow : Window
             if (it.Running)
             {
                 m.Items.Add(new Separator());
-                m.Items.Add(Ui.Item("Encerrar", () => { foreach (var w in it.Windows.ToList()) Shell.Close(w); }));
+                m.Items.Add(Ui.Item("Encerrar", () => Shell.CloseAll(it.Windows, it.Name)));
+                // Apps that only hide to the tray on close (Discord, Steam…) need this to really quit.
+                m.Items.Add(Ui.Item("Forçar Encerramento", () => Shell.ForceQuit(it.App?.ExePath, it.Windows.ToList(), it.Name)));
             }
         }
 

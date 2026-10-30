@@ -262,7 +262,8 @@ internal sealed class MenuBarWindow : Window
         m.Items.Add(Ui.Item(hasWindow && Native.IsZoomed(fg) ? "Restaurar Janela" : "Maximizar Janela", () => Shell.ToggleMaximize(fg), enabled: hasWindow));
         m.Items.Add(Ui.Item("Fechar Janela", () => Shell.Close(fg), enabled: hasWindow));
         m.Items.Add(new Separator());
-        m.Items.Add(Ui.Item($"Encerrar {name}", () => Windows(app!.Key).ForEach(Shell.Close), enabled: app != null && Windows(app.Key).Count > 0));
+        m.Items.Add(Ui.Item($"Encerrar {name}", () => Shell.CloseAll(Windows(app!.Key), name), enabled: app != null && Windows(app.Key).Count > 0));
+        m.Items.Add(Ui.Item("Forçar Encerramento", () => Shell.ForceQuit(app!.ExePath, Windows(app.Key), name), enabled: app != null));
         Open(b, m);
     }
 

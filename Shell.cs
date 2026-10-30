@@ -285,7 +285,49 @@ internal static class Shell
 
     public static void Minimize(IntPtr h) => Native.ShowWindow(h, Native.SW_MINIMIZE);
 
-    public static void Close(IntPtr h) => Native.PostMessage(h, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+    /// <summary>
+    /// Same as clicking the window's X (SC_CLOSE). Returns false when Windows refuses the message,
+    /// which happens for apps running as administrator (UIPI blocks a normal app from closing them).
+    /// </summary>
+    public static bool Close(IntPtr h) =>
+        Native.PostMessage(h, Native.WM_SYSCOMMAND, new IntPtr(0xF060 /* SC_CLOSE */), IntPtr.Zero)
+        || Native.PostMessage(h, Native.WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+
+    /// <summary>Closes several windows; tells the user when Windows blocked it (elevated app).</summary>
+    public static void CloseAll(IEnumerable<IntPtr> windows, string appName)
+    {
+        bool blocked = false;
+        foreach (var w in windows.ToList()) blocked |= !Close(w);
+        if (blocked) ElevatedWarning(appName);
+    }
+
+    /// <summary>Force Quit: ends every process of the app (unsaved work is lost).</summary>
+    public static void ForceQuit(string? exePath, IEnumerable<IntPtr> windows, string appName)
+    {
+        var pids = new HashSet<int>();
+        foreach (var w in windows)
+            if (Native.GetWindowThreadProcessId(w, out uint pid) != 0) pids.Add((int)pid);
+        // Apps like Discord/Steam run several processes of the same exe; end them all.
+        if (exePath != null && !Path.GetFileName(exePath).Equals("explorer.exe", StringComparison.OrdinalIgnoreCase))
+            foreach (var p in Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exePath)))
+            {
+                try { if (string.Equals(p.MainModule?.FileName, exePath, StringComparison.OrdinalIgnoreCase)) pids.Add(p.Id); }
+                catch { pids.Add(p.Id); } // no access to the module path: same name is good enough
+            }
+
+        bool denied = false;
+        foreach (var pid in pids)
+        {
+            try { Process.GetProcessById(pid).Kill(entireProcessTree: true); }
+            catch (System.ComponentModel.Win32Exception) { denied = true; }
+            catch (Exception ex) { App.Log(ex); }
+        }
+        if (denied) ElevatedWarning(appName);
+    }
+
+    private static void ElevatedWarning(string appName) =>
+        MessageBox.Show($"O Windows não deixou o Doca fechar \"{appName}\" porque ele está rodando como administrador.\n\n" +
+                        "Feche pelo próprio app ou pelo Gerenciador de Tarefas.", "Doca", MessageBoxButton.OK, MessageBoxImage.Information);
 
     public static void ToggleMaximize(IntPtr h) => Native.ShowWindow(h, Native.IsZoomed(h) ? Native.SW_RESTORE : Native.SW_MAXIMIZE);
 

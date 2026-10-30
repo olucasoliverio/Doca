@@ -114,7 +114,7 @@ internal sealed class PreviewWindow : Window
         close.MouseLeftButtonUp += (_, e) =>
         {
             e.Handled = true;
-            Shell.Close(win);
+            Shell.CloseAll(new[] { win }, Native.WindowTitle(win));
             HidePreview();
         };
         grid.Children.Add(title);
