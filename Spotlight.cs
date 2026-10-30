@@ -95,7 +95,9 @@ internal sealed class SpotlightWindow : Window
         search.Children.Add(field);
 
         divider = new Border { Height = 1, Background = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)), Visibility = Visibility.Collapsed };
+        // Hidden until there are results: its margin alone would push the search field 7 px off center.
         list.Margin = new Thickness(8, 6, 8, 8);
+        list.Visibility = Visibility.Collapsed;
         var body = new StackPanel();
         body.Children.Add(search);
         body.Children.Add(divider);
