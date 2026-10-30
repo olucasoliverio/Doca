@@ -20,6 +20,7 @@ Marque `[x]` ao passar. Anote o que falhar ao lado.
 - [ ] Nome do app em foco atualiza ao trocar de app
 - [ ] Menus do app: WinRAR/Notepad++ (menu real), Bloco de Notas (menu do app), Chrome (menus padrão)
 - [ ] Clicar em um item de menu executa o comando (ex.: Editar → Copiar/Colar no Chrome)
+- [ ] Menu aberto (logo, nome do app, Arquivo…, botão direito na Dock) fecha ao clicar em outro app ou na área de trabalho
 - [ ] Ícones da bandeja: clique esquerdo/direito/duplo funcionam no app; arrastar reordena
 - [ ] Calendário: abre embaixo do relógio, navega meses, Esc fecha
 - [ ] Som: volume, mudo, trocar saída (fone ↔ caixa) muda o áudio de verdade

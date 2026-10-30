@@ -1,5 +1,6 @@
 ﻿using System.Globalization;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -18,6 +19,50 @@ internal static class Ui
         if (isChecked != null) mi.IsChecked = isChecked.Value;
         mi.Click += (_, _) => action();
         return mi;
+    }
+
+    private delegate IntPtr LowLevelMouseProc(int code, IntPtr msg, IntPtr info);
+    [DllImport("user32.dll")] private static extern IntPtr SetWindowsHookEx(int id, LowLevelMouseProc proc, IntPtr module, uint thread);
+    [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
+    [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hook, int code, IntPtr msg, IntPtr info);
+    [DllImport("user32.dll")] private static extern IntPtr WindowFromPoint(Native.POINT pt);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] private static extern IntPtr GetModuleHandle(string? name);
+    private const int WH_MOUSE_LL = 14, WM_LBUTTONDOWN = 0x201, WM_RBUTTONDOWN = 0x204, WM_MBUTTONDOWN = 0x207;
+
+    /// <summary>
+    /// Closes the menu on a click anywhere outside Doca. The bar and Dock never take focus
+    /// (WS_EX_NOACTIVATE), and without focus WPF's "click outside" detection (mouse capture) only
+    /// sees clicks on Doca's own windows: clicking another app or the desktop left the menu open.
+    /// A low-level mouse hook, installed only while the menu is open, sees every click.
+    /// </summary>
+    public static void CloseOnOutsideClick(ContextMenu m)
+    {
+        IntPtr hook = IntPtr.Zero;
+        LowLevelMouseProc? proc = null; // must stay referenced while installed, or the GC frees the thunk
+        uint ownPid = (uint)Environment.ProcessId;
+        m.Opened += (_, _) =>
+        {
+            if (hook != IntPtr.Zero) return;
+            proc = (code, msg, info) =>
+            {
+                int wm = msg.ToInt32();
+                if (code >= 0 && (wm == WM_LBUTTONDOWN || wm == WM_RBUTTONDOWN || wm == WM_MBUTTONDOWN))
+                {
+                    // MSLLHOOKSTRUCT starts with the cursor position.
+                    Native.GetWindowThreadProcessId(WindowFromPoint(Marshal.PtrToStructure<Native.POINT>(info)), out uint pid);
+                    // Clicks on Doca (the menu itself, the bar) are left to WPF as before.
+                    if (pid != ownPid) m.Dispatcher.BeginInvoke(() => m.IsOpen = false);
+                }
+                return CallNextHookEx(IntPtr.Zero, code, msg, info);
+            };
+            hook = SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(null), 0);
+        };
+        m.Closed += (_, _) =>
+        {
+            if (hook != IntPtr.Zero) UnhookWindowsHookEx(hook);
+            hook = IntPtr.Zero;
+            proc = null;
+        };
     }
 }
 
@@ -211,6 +256,7 @@ internal sealed class MenuBarWindow : Window
         m.VerticalOffset = 3;
         m.Opened += (_, _) => anchor.Background = hoverBrush;
         m.Closed += (_, _) => { if (!anchor.IsMouseOver) anchor.Background = Brushes.Transparent; };
+        Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }
 

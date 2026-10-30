@@ -860,6 +860,7 @@ internal sealed class DockWindow : Window
             Wake();
         };
         m.Closed += (_, _) => { menuOpen = false; Wake(); };
+        Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }
 
