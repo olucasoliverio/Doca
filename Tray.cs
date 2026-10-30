@@ -288,6 +288,45 @@ internal sealed class TrayIconsPanel : StackPanel
     #region Shared icon button pieces (bar and overflow flyout)
 
     public static uint MousePos() => MouseHelper.GetCursorPositionParam();
+
+    /// <summary>
+    /// Click position reported to the app: the cursor's x at the bar's bottom edge. Apps use it as the
+    /// anchor for their menus, so the menu opens below the bar instead of underneath it.
+    /// </summary>
+    public static uint AnchorBelow(FrameworkElement e)
+    {
+        Native.GetCursorPos(out var c);
+        int y = c.Y;
+        if (PresentationSource.FromVisual(e) != null)
+            y = Math.Max(y, (int)Math.Ceiling(e.PointToScreen(new Point(0, e.ActualHeight)).Y) + 4);
+        return ((uint)(y & 0xFFFF) << 16) | (uint)(c.X & 0xFFFF);
+    }
+
+    /// <summary>
+    /// Apps that draw their own tray menu in a normal window (Steam…) would open it under our
+    /// always-on-top bar. Step the bar back while that menu is up and return when focus moves on.
+    /// </summary>
+    public static void StepAside(FrameworkElement e)
+    {
+        if (PresentationSource.FromVisual(e) is not System.Windows.Interop.HwndSource src) return;
+        IntPtr bar = src.Handle;
+        const uint flags = Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE;
+        Native.SetWindowPos(bar, new IntPtr(-2) /* HWND_NOTOPMOST */, 0, 0, 0, 0, flags);
+
+        IntPtr menuOwner = IntPtr.Zero;
+        var started = DateTime.Now;
+        var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
+        timer.Tick += (_, _) =>
+        {
+            IntPtr fg = Native.GetForegroundWindow();
+            double elapsed = (DateTime.Now - started).TotalSeconds;
+            if (elapsed < 0.5) { menuOwner = fg; return; } // the app's menu takes focus right after the click
+            if (fg == menuOwner && elapsed < 15) return;
+            timer.Stop();
+            Native.SetWindowPos(bar, Native.HWND_TOPMOST, 0, 0, 0, 0, flags);
+        };
+        timer.Start();
+    }
     public static int DoubleClick() => GetDoubleClickTime();
 
     /// <summary>Icon visual that follows the app's icon/tooltip/visibility changes while it is on screen.</summary>
@@ -360,7 +399,8 @@ internal sealed class TrayIconsPanel : StackPanel
                 b.CaptureMouse();
                 return;
             }
-            icon.IconMouseDown(e.ChangedButton, MousePos(), DoubleClick());
+            StepAside(b);
+            icon.IconMouseDown(e.ChangedButton, AnchorBelow(b), DoubleClick());
         };
         b.MouseUp += (_, e) =>
         {
@@ -377,9 +417,10 @@ internal sealed class TrayIconsPanel : StackPanel
                     EndDrag(icon);
                     return;
                 }
-                icon.IconMouseDown(MouseButton.Left, MousePos(), DoubleClick());
+                StepAside(b);
+                icon.IconMouseDown(MouseButton.Left, AnchorBelow(b), DoubleClick());
             }
-            icon.IconMouseUp(e.ChangedButton, MousePos(), DoubleClick());
+            icon.IconMouseUp(e.ChangedButton, AnchorBelow(b), DoubleClick());
         };
         return b;
     }
