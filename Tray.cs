@@ -260,8 +260,13 @@ internal sealed class TrayIconsPanel : StackPanel
 
     public static bool IsCollapsed(DocaConfig cfg, NotifyIcon i) => cfg.TrayCollapsed.Contains(i.Identifier ?? "");
 
+    private bool rebuildPending;
+
     private void Rebuild()
     {
+        // Rebuilding mid-drag would pull the dragged button out from under the cursor.
+        if (dragging) { rebuildPending = true; return; }
+        rebuildPending = false;
         icons.Children.Clear();
         var all = Ordered(cfg);
         var inBar = all.Where(i => !IsCollapsed(cfg, i)).ToList();
@@ -388,6 +393,7 @@ internal sealed class TrayIconsPanel : StackPanel
         if (overChevron) return;
 
         int from = icons.Children.IndexOf(b), to = 0;
+        if (from < 0) return;
         double acc = 0;
         foreach (UIElement c in icons.Children)
         {
@@ -411,6 +417,7 @@ internal sealed class TrayIconsPanel : StackPanel
         overChevron = false;
         cfg.Save();
         RaiseChanged();
+        if (rebuildPending) Rebuild();
     }
 }
 
