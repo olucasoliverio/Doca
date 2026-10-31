@@ -158,7 +158,10 @@ internal sealed class WindowTracker : IDisposable
             bool candidate = app || h == fg || Native.GetWindowTextLength(h) > 0;
             foreach (var (mon, b) in pending.ToList())
             {
-                bool covers = r.Left <= b.Left && r.Top <= b.Top && r.Right >= b.Right && r.Bottom >= b.Bottom;
+                // Slack: Chrome shrinks a fullscreen window by 1 px when it loses focus (so the taskbar can
+                // show over it); without it, clicking the other screen brought the bar back over the video.
+                const int slack = 4;
+                bool covers = r.Left <= b.Left + slack && r.Top <= b.Top + slack && r.Right >= b.Right - slack && r.Bottom >= b.Bottom - slack;
                 if (covers && candidate) { result.Add(mon); pending.Remove(mon); }
                 else if (app && r.Left < b.Right && r.Right > b.Left && r.Top < b.Bottom && r.Bottom > b.Top) pending.Remove(mon);
             }
