@@ -20,6 +20,9 @@ Marque `[x]` ao passar. Anote o que falhar ao lado.
 - [ ] Nome do app em foco atualiza ao trocar de app
 - [ ] Menus do app: WinRAR/Notepad++ (menu real), Bloco de Notas (menu do app), Chrome (menus padrão)
 - [ ] Clicar em um item de menu executa o comando (ex.: Editar → Copiar/Colar no Chrome)
+- [ ] Música: item aparece com Spotify/YouTube tocando, some sem player; painel tem capa, tempo andando, ⏮ ⏯ ⏭ funcionam; clicar na capa abre o player
+- [ ] Central de Controle: Wi-Fi/Bluetooth ligam e desligam; modo escuro muda o Windows; brilho muda os dois monitores (nomes LG ULTRAGEAR e 2460G5); volume; clicar no nome da saída abre o painel de som
+- [ ] Dock: download no Chrome mostra barra azul no ícone; pausado fica amarelo
 - [ ] Menu aberto (logo, nome do app, Arquivo…, botão direito na Dock) fecha ao clicar em outro app ou na área de trabalho
 - [ ] Ícones da bandeja: clique esquerdo/direito/duplo funcionam no app; arrastar reordena
 - [ ] Calendário: abre embaixo do relógio, navega meses, Esc fecha

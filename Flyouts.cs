@@ -25,6 +25,8 @@ internal abstract class Flyout : Window
     protected static readonly Brush RowHover = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
 
     private FrameworkElement? anchor;
+    /// <summary>The menu bar item this panel hangs from; another panel opened from here reuses it.</summary>
+    protected FrameworkElement? Anchor => anchor;
     private bool closing;
     private string key = "";
     protected readonly StackPanel Body = new();

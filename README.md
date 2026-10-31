@@ -25,8 +25,10 @@ Antes de publicar uma mudança grande, passe pela [lista de testes](TESTES.md).
 
 ## Recursos
 
-- **Dock** (uma por tela): ampliação, esconder automaticamente, badges de notificação, pré-visualização de janelas, arrastar para reordenar/fixar/remover, lixeira.
+- **Dock** (uma por tela): ampliação, esconder automaticamente, badges de notificação, barra de progresso (downloads, cópias), pré-visualização de janelas, arrastar para reordenar/fixar/remover, lixeira.
 - **Barra de menu** (uma por tela): menus do app em foco, ícones da bandeja (inclusive os escondidos), painéis próprios de calendário, som (volume e saída), Wi-Fi e Bluetooth.
+- **Central de Controle**: Wi-Fi, Bluetooth, modo escuro, projetar, brilho de cada monitor (DDC/CI), volume e música.
+- **Música tocando** na barra (Spotify, YouTube…) com capa, tempo e controles.
 - **Spotlight** (Alt+Espaço ou a lupa da barra): apps, páginas de Configurações, ações do sistema, contas rápidas e busca na web/arquivos.
 - Some só na tela que tem um app em tela cheia; cantos arredondados; Alt+` alterna janelas do mesmo app.
 - Tudo configurável em **Preferências** (logo da barra → Preferências do Doca…).
@@ -49,6 +51,8 @@ Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 | `DockWindow.cs` | Dock: layout, animação (vsync, só quando algo se move), entrada, arrastar |
 | `MenuBarWindow.cs` | Barra de menu e itens de status |
 | `Flyouts.cs` | Painéis de calendário, som, Wi-Fi e Bluetooth |
+| `ControlCenter.cs` | Central de Controle, brilho por DDC/CI (`DdcMonitor`), modo escuro (`Theme`) |
+| `Media.cs` | Música tocando (`NowPlaying`, API de mídia do Windows) e o player dos painéis |
 | `Spotlight.cs` | Busca do Alt+Espaço (apps do Menu Iniciar, Configurações, contas) |
 | `AppMenus.cs` | Menus do app (Win32, UI Automation ou menus padrão) |
 | `WindowTracker.cs` | Janelas abertas e tela cheia por monitor (WinEvent hooks) |

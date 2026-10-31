@@ -144,6 +144,9 @@ internal sealed class SettingsWindow : Window
                 Btn("Restaurar", () => { cfg.TrayOrder.Clear(); cfg.TrayCollapsed.Clear(); Changed(Apply.Screens); }))),
         TrayIconsCard(),
         Card(
+            Toggle("Música tocando", "Mostra na barra o que está tocando (Spotify, YouTube…). Clique para os controles.",
+                () => cfg.ShowNowPlaying, v => { cfg.ShowNowPlaying = v; Changed(Apply.Screens); })),
+        Card(
             Toggle("Mostrar a data no relógio", "Ex.: Qui 29 Out 21:35",
                 () => cfg.ClockShowDate, v => { cfg.ClockShowDate = v; Changed(Apply.Screens); }),
             Toggle("Mostrar os segundos", null,

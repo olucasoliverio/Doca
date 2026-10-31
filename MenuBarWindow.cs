@@ -86,6 +86,9 @@ internal sealed class MenuBarWindow : Window
     private readonly TextBlock batteryPct = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0), FontSize = 12 };
     private readonly Border batteryItem, volumeItem, wifiItem, bluetoothItem;
     private readonly TextBlock bluetooth = Glyph("");
+    private readonly TextBlock nowPlayingGlyph = new() { Text = "", FontFamily = new FontFamily(IconFont), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+    private readonly TextBlock nowPlayingTitle = new() { MaxWidth = 170, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+    private readonly Border nowPlayingItem;
     private readonly DispatcherTimer clockTimer = new(), statusTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
     private readonly IntPtr monitor;
     private AppBar? appBar;
@@ -146,11 +149,17 @@ internal sealed class MenuBarWindow : Window
         volumeItem.MouseRightButtonUp += (_, _) => { Audio.ToggleMute(); UpdateVolume(); };
         TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(hoverBrush, cfg) : null;
         if (tray != null) right.Children.Add(tray);
+        var nowPlayingPanel = new StackPanel { Orientation = Orientation.Horizontal };
+        nowPlayingPanel.Children.Add(nowPlayingGlyph);
+        nowPlayingPanel.Children.Add(nowPlayingTitle);
+        nowPlayingItem = Item(nowPlayingPanel, b => Flyout.Toggle("media", b, () => new MediaFlyout(cfg)), null);
+        right.Children.Add(nowPlayingItem);
         right.Children.Add(Item(Glyph(""), _ => SpotlightWindow.Toggle(cfg), "Spotlight (Alt+Espaço)"));
         right.Children.Add(batteryItem);
         right.Children.Add(bluetoothItem);
         right.Children.Add(wifiItem);
         right.Children.Add(volumeItem);
+        right.Children.Add(Item(Glyph(""), b => Flyout.Toggle("control", b, () => new ControlCenterFlyout(cfg)), "Central de Controle"));
         right.Children.Add(Item(clock, b => Flyout.Toggle("calendar", b, () => new CalendarFlyout(cfg)), null));
 
         var root = new Grid();
@@ -184,6 +193,7 @@ internal sealed class MenuBarWindow : Window
         tracker.ForegroundChanged += UpdateAppName;
         tracker.AppsChanged += RetryAppMenus;
         tracker.FullscreenChanged += UpdateVisibility;
+        NowPlaying.Changed += UpdateNowPlaying;
         NetworkChange.NetworkAddressChanged += OnNetworkChanged;
         NetworkChange.NetworkAvailabilityChanged += OnNetworkChanged;
         Closed += (_, _) =>
@@ -192,6 +202,7 @@ internal sealed class MenuBarWindow : Window
             tracker.ForegroundChanged -= UpdateAppName;
             tracker.AppsChanged -= RetryAppMenus;
             tracker.FullscreenChanged -= UpdateVisibility;
+            NowPlaying.Changed -= UpdateNowPlaying;
             NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
             clockTimer.Stop();
@@ -203,6 +214,7 @@ internal sealed class MenuBarWindow : Window
         statusTimer.Tick += (_, _) => UpdateStatus();
 
         UpdateAppName();
+        UpdateNowPlaying();
         UpdateClock();
         UpdateNetwork();
         UpdateStatus();
@@ -210,6 +222,17 @@ internal sealed class MenuBarWindow : Window
     }
 
     public void ReleaseAppBar() => appBar?.Release();
+
+    /// <summary>Song title while something plays; paused shows dimmed; nothing at all hides the item.</summary>
+    private void UpdateNowPlaying()
+    {
+        bool show = cfg.ShowNowPlaying && NowPlaying.HasSession;
+        nowPlayingItem.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (!show) return;
+        nowPlayingTitle.Text = NowPlaying.Title;
+        nowPlayingItem.Opacity = NowPlaying.Playing ? 1 : 0.6;
+        nowPlayingItem.ToolTip = NowPlaying.Artist.Length > 0 ? $"{NowPlaying.Title} — {NowPlaying.Artist}" : NowPlaying.Title;
+    }
 
     private void OnNetworkChanged(object? sender, EventArgs e) => Dispatcher.BeginInvoke(UpdateNetwork);
 

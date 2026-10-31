@@ -63,6 +63,7 @@ public partial class App : Application
         if (cfg.HideTaskbar && !preview) Taskbar.Hide(cfg);
 
         Tray.Start();
+        NowPlaying.Start();
         WindowCycler.Start(cfg, tracker);
         SpotlightHotkey.Start(cfg);
         CreateScreens();

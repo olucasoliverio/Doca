@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using ManagedShell;
 using ManagedShell.Common.Helpers;
+using ManagedShell.Interop;
 using ManagedShell.WindowsTasks;
 using ManagedShell.WindowsTray;
 
@@ -151,7 +152,8 @@ internal static class Badges
 
     private static void OnProperty(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(ApplicationWindow.OverlayIcon) or nameof(ApplicationWindow.State)) Raise();
+        if (e.PropertyName is nameof(ApplicationWindow.OverlayIcon) or nameof(ApplicationWindow.State)
+            or nameof(ApplicationWindow.ProgressState) or nameof(ApplicationWindow.ProgressValue)) Raise();
     }
 
     private static void Raise() => Application.Current?.Dispatcher.BeginInvoke(() => Changed?.Invoke());
@@ -169,6 +171,27 @@ internal static class Badges
         }
         return (overlay, attention);
     }
+
+    /// <summary>
+    /// Taskbar progress (ITaskbarList3: downloads, installs, file copies) of an app's windows.
+    /// value is 0–1, or null for "busy" without a known amount.
+    /// </summary>
+    public static (ProgressKind kind, double? value)? Progress(IReadOnlyList<IntPtr> hwnds)
+    {
+        foreach (var h in hwnds)
+        {
+            if (!windows.TryGetValue(h, out var w)) continue;
+            var f = w.ProgressState;
+            if (f == NativeMethods.TBPFLAG.TBPF_NOPROGRESS) continue;
+            if (f.HasFlag(NativeMethods.TBPFLAG.TBPF_INDETERMINATE)) return (ProgressKind.Busy, null);
+            var kind = f.HasFlag(NativeMethods.TBPFLAG.TBPF_ERROR) ? ProgressKind.Error
+                     : f.HasFlag(NativeMethods.TBPFLAG.TBPF_PAUSED) ? ProgressKind.Paused : ProgressKind.Normal;
+            return (kind, Math.Clamp(w.ProgressValue / 100.0, 0, 1)); // ManagedShell reports percent
+        }
+        return null;
+    }
+
+    public enum ProgressKind { Normal, Paused, Error, Busy }
 }
 
 /// <summary>

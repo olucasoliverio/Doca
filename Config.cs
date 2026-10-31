@@ -50,6 +50,7 @@ internal sealed class DocaConfig
     public bool MenuBarAllScreens { get; set; } = true;
     public double MenuBarOpacity { get; set; } = 0.55;
     public bool ShowTrayIcons { get; set; } = true;
+    public bool ShowNowPlaying { get; set; } = true;
     public bool ClockShowDate { get; set; } = true;
     public bool ClockShowSeconds { get; set; } = false;
     public string Font { get; set; } = "Segoe UI Variable Text, Segoe UI";

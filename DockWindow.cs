@@ -91,6 +91,12 @@ internal sealed class DockWindow : Window
     private static readonly Brush placeholder = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
     private static readonly Brush badgeFill = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0x3B, 0x30)));
     private static readonly Pen badgeStroke = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0xC0, 0x1E, 0x1E, 0x22))), 1.5));
+    private static readonly Brush progressTrack = Frozen(new SolidColorBrush(Color.FromArgb(0xC8, 0x1E, 0x1E, 0x22)));
+    private static readonly Pen progressStroke = Frozen(new Pen(Frozen(new SolidColorBrush(Color.FromArgb(0x90, 0xFF, 0xFF, 0xFF))), 1));
+    private static readonly Brush progressNormal = Frozen(new SolidColorBrush(Color.FromRgb(0x0A, 0x84, 0xFF)));
+    private static readonly Brush progressPaused = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xD6, 0x0A)));
+    private static readonly Brush progressError = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A)));
+    private static readonly Brush progressBusy = Frozen(new SolidColorBrush(Color.FromArgb(0x70, 0x0A, 0x84, 0xFF)));
 
     private static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
@@ -589,6 +595,28 @@ internal sealed class DockWindow : Window
             {
                 double rad = bs * 0.36;
                 dc.DrawEllipse(badgeFill, badgeStroke, new Point(br.X + bs / 2, br.Y + bs / 2), rad, rad);
+            }
+
+            // Download/copy progress as a bar across the bottom of the icon, like macOS' Finder and Safari.
+            // Drawn statically ("busy" is a dimmed full bar): animating would keep the Dock rendering every frame.
+            if (Badges.Progress(it.Windows) is { } p)
+            {
+                double h = Math.Max(4, Math.Round(size * 0.1)), w = Math.Round(size * 0.8);
+                var track = new Rect(r.X + (size - w) / 2, r.Bottom - h - Math.Round(size * 0.08), w, h);
+                dc.DrawRoundedRectangle(progressTrack, progressStroke, track, h / 2, h / 2);
+                double done = p.value ?? 1;
+                if (done > 0)
+                {
+                    var bar = new Rect(track.X + 1, track.Y + 1, Math.Max(h - 2, (track.Width - 2) * done), track.Height - 2);
+                    var fill = p.kind switch
+                    {
+                        Badges.ProgressKind.Paused => progressPaused,
+                        Badges.ProgressKind.Error => progressError,
+                        Badges.ProgressKind.Busy => progressBusy,
+                        _ => progressNormal,
+                    };
+                    dc.DrawRoundedRectangle(fill, null, bar, bar.Height / 2, bar.Height / 2);
+                }
             }
         }
         if (opacity < 1) dc.Pop();
