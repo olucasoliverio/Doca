@@ -210,10 +210,22 @@ internal static class Native
 
     /// <summary>
     /// What the user actually sees of a window. GetWindowRect includes the invisible resize border, so a
-    /// maximized window reaches ~8 px into the neighbouring monitor.
+    /// maximized window reaches ~8 px into the neighbouring monitor. Frameless windows (Electron: Discord,
+    /// Spotify, Claude) have no DWM frame, so their "visible" bounds still overflow: maximized ones are
+    /// clipped to their own monitor.
     /// </summary>
-    public static bool GetVisibleRect(IntPtr h, out RECT r) =>
-        DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf<RECT>()) == 0 || GetWindowRect(h, out r);
+    public static bool GetVisibleRect(IntPtr h, out RECT r)
+    {
+        if (DwmGetWindowAttribute(h, DWMWA_EXTENDED_FRAME_BOUNDS, out r, Marshal.SizeOf<RECT>()) != 0 && !GetWindowRect(h, out r))
+            return false;
+        if (IsZoomed(h))
+        {
+            var b = MonitorInfo(MonitorFromWindow(h, 2 /* MONITOR_DEFAULTTONEAREST */)).Bounds;
+            r.Left = Math.Max(r.Left, b.Left); r.Top = Math.Max(r.Top, b.Top);
+            r.Right = Math.Min(r.Right, b.Right); r.Bottom = Math.Min(r.Bottom, b.Bottom);
+        }
+        return true;
+    }
 
     public static string? ProcessPath(uint pid)
     {
