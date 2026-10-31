@@ -265,8 +265,8 @@ internal sealed class DockWindow : Window
             desired.Add(it);
         }
 
+        // Running apps follow the pinned ones with no divider between them (Lucas prefers one continuous row).
         var extras = tracker.Apps.Where(a => !used.Contains(a.Key)).ToList();
-        if (extras.Count > 0) desired.Add(Get("|sep-running", DockItemKind.Separator));
         foreach (var a in extras)
         {
             var it = Get(a.Key, DockItemKind.App);
