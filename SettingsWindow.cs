@@ -144,6 +144,13 @@ internal sealed class SettingsWindow : Window
                 Btn("Restaurar", () => { cfg.TrayOrder.Clear(); cfg.TrayCollapsed.Clear(); Changed(Apply.Screens); }))),
         TrayIconsCard(),
         Card(
+            Toggle("Wi-Fi na barra", "Sinal e rede atual. Também fica na Central de Controle.",
+                () => cfg.ShowWifi, v => { cfg.ShowWifi = v; Changed(Apply.Screens); }),
+            Toggle("Bluetooth na barra", "Também fica na Central de Controle.",
+                () => cfg.ShowBluetooth, v => { cfg.ShowBluetooth = v; Changed(Apply.Screens); }),
+            Toggle("Som na barra", "Role sobre o ícone para mudar o volume; botão direito silencia. Também fica na Central de Controle.",
+                () => cfg.ShowVolume, v => { cfg.ShowVolume = v; Changed(Apply.Screens); })),
+        Card(
             Toggle("Música tocando", "Mostra na barra o que está tocando (Spotify, YouTube…). Clique para os controles.",
                 () => cfg.ShowNowPlaying, v => { cfg.ShowNowPlaying = v; Changed(Apply.Screens); })),
         Card(

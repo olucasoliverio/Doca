@@ -51,6 +51,10 @@ internal sealed class DocaConfig
     public double MenuBarOpacity { get; set; } = 0.55;
     public bool ShowTrayIcons { get; set; } = true;
     public bool ShowNowPlaying { get; set; } = true;
+    // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
+    public bool ShowWifi { get; set; } = true;
+    public bool ShowBluetooth { get; set; } = false;
+    public bool ShowVolume { get; set; } = true;
     public bool ClockShowDate { get; set; } = true;
     public bool ClockShowSeconds { get; set; } = false;
     public string Font { get; set; } = "Segoe UI Variable Text, Segoe UI";

@@ -452,7 +452,7 @@ internal sealed class MenuBarWindow : Window
 
     private void UpdateVolume()
     {
-        var v = Audio.Get();
+        var v = cfg.ShowVolume ? Audio.Get() : null;
         if (v == null) { volumeItem.Visibility = Visibility.Collapsed; return; }
         volumeItem.Visibility = Visibility.Visible;
         var (level, muted) = v.Value;
@@ -476,6 +476,8 @@ internal sealed class MenuBarWindow : Window
 
     private async Task UpdateBluetooth()
     {
+        // Hidden: skip the radio and device queries too (they run every few seconds).
+        if (!cfg.ShowBluetooth) { bluetoothItem.Visibility = Visibility.Collapsed; return; }
         await Bluetooth.LoadRadiosAsync();
         if (closed) return;
         bluetoothItem.Visibility = Bluetooth.HasAdapter ? Visibility.Visible : Visibility.Collapsed;
@@ -489,6 +491,8 @@ internal sealed class MenuBarWindow : Window
 
     private void UpdateNetwork()
     {
+        wifiItem.Visibility = cfg.ShowWifi ? Visibility.Visible : Visibility.Collapsed;
+        if (!cfg.ShowWifi) return;
         NetworkInterface? up = null;
         try
         {
