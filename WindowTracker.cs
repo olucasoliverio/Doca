@@ -150,7 +150,9 @@ internal sealed class WindowTracker : IDisposable
             long ex = Native.ExStyle(h);
             if ((ex & (Native.WS_EX_TRANSPARENT | Native.WS_EX_TOOLWINDOW | Native.WS_EX_NOACTIVATE)) != 0) return true;
             if (ignoredClasses.Contains(Native.ClassName(h))) return true;
-            if (!Native.GetWindowRect(h, out var r) || r.Width <= 0 || r.Height <= 0) return true;
+            // Visible bounds: with the raw rect, a window maximized on the other screen "touched" the video's
+            // screen and brought the bar back whenever it got focus.
+            if (!Native.GetVisibleRect(h, out var r) || r.Width <= 0 || r.Height <= 0) return true;
 
             bool app = IsAppWindow(h);
             bool candidate = app || h == fg || Native.GetWindowTextLength(h) > 0;
