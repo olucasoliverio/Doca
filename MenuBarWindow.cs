@@ -120,7 +120,8 @@ internal sealed class MenuBarWindow : Window
         FontFamily = new FontFamily(cfg.Font);
         FontSize = 13;
         Foreground = Brushes.White;
-        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Display);
+        // Ideal (unhinted) keeps the font's real shapes, closer to the macOS menu bar; Display looked thin and boxy.
+        TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
         UseLayoutRounding = true;
 
         var logo = new Path
