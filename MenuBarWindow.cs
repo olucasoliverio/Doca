@@ -21,6 +21,12 @@ internal static class Ui
         return mi;
     }
 
+    /// <summary>Gray section title inside a menu (Jump List categories).</summary>
+    public static MenuItem Header(string text) =>
+        new() { Header = text, IsEnabled = false, Focusable = false, FontSize = 11.5, FontWeight = FontWeights.SemiBold };
+
+    public static string Shorten(string s, int max = 60) => s.Length > max ? s[..(max - 3)] + "…" : s;
+
     private delegate IntPtr LowLevelMouseProc(int code, IntPtr msg, IntPtr info);
     [DllImport("user32.dll")] private static extern IntPtr SetWindowsHookEx(int id, LowLevelMouseProc proc, IntPtr module, uint thread);
     [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hook);
@@ -147,7 +153,8 @@ internal sealed class MenuBarWindow : Window
         bluetoothItem.Visibility = Visibility.Collapsed; // until we know there is an adapter
         volumeItem = Item(volume, b => Flyout.Toggle("sound", b, () => new SoundFlyout(cfg)), null);
         volumeItem.MouseWheel += (_, e) => { Audio.Nudge(e.Delta > 0 ? 0.02f : -0.02f); UpdateVolume(); };
-        volumeItem.MouseRightButtonUp += (_, _) => { Audio.ToggleMute(); UpdateVolume(); };
+        // Right-click opens the panel like everywhere else in the bar; the middle button mutes.
+        volumeItem.MouseUp += (_, e) => { if (e.ChangedButton == MouseButton.Middle) { Audio.ToggleMute(); UpdateVolume(); } };
         TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(hoverBrush, cfg) : null;
         if (tray != null) right.Children.Add(tray);
         var nowPlayingPanel = new StackPanel { Orientation = Orientation.Horizontal };
@@ -269,6 +276,10 @@ internal sealed class MenuBarWindow : Window
         b.MouseEnter += (_, _) => b.Background = hoverBrush;
         b.MouseLeave += (_, _) => { if (b.ContextMenu?.IsOpen != true) b.Background = Brushes.Transparent; };
         b.MouseLeftButtonUp += (_, _) => click(b);
+        // On the Mac a right (Control) click on any menu bar item opens the same menu as a left click.
+        b.MouseRightButtonUp += (_, e) => { e.Handled = true; click(b); };
+        // Open() leaves the last menu in b.ContextMenu; WPF would reopen that stale one on right-click too.
+        b.ContextMenuOpening += (_, e) => e.Handled = true;
         return b;
     }
 

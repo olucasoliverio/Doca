@@ -1,12 +1,14 @@
 ﻿using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 
 namespace Doca;
 
@@ -842,36 +844,36 @@ internal sealed class DockWindow : Window
         }
         else
         {
+            // Like the macOS Dock: ✓ on the app's front window, ◆ on minimized ones.
+            IntPtr front = it.Windows.FirstOrDefault(w => !Native.IsIconic(w));
             foreach (var w in it.Windows.Take(12))
             {
-                string title = Native.WindowTitle(w);
-                if (title.Length > 60) title = title[..57] + "…";
                 var win = w;
-                m.Items.Add(Ui.Item(title, () => Shell.Focus(win)));
+                var mi = Ui.Item(Ui.Shorten(Native.WindowTitle(w)), () => Shell.Focus(win), w == front ? true : null);
+                if (Native.IsIconic(w)) mi.Tag = "minimized";
+                m.Items.Add(mi);
             }
             if (it.Running) m.Items.Add(new Separator());
 
-            m.Items.Add(Ui.Item(it.Running ? "Nova janela" : "Abrir", () => Launch(it)));
-            if (it.Pin != null)
-                m.Items.Add(Ui.Item("Remover da Dock", () => { cfg.Pinned.Remove(it.Pin); cfg.Save(); Rebuild(); }));
-            else if (it.App != null)
-                m.Items.Add(Ui.Item("Manter na Dock", () =>
-                {
-                    cfg.Pinned.Add(new PinnedApp { Path = it.App.ExePath, Aumid = it.App.Aumid });
-                    cfg.Save();
-                    Rebuild();
-                }));
+            string? exe = it.App?.ExePath ?? it.Pin?.ResolvedPath ?? it.Pin?.Path;
+            AddJumpList(m, it, exe);
 
-            string? path = it.Pin?.ResolvedPath ?? it.Pin?.Path ?? it.App?.ExePath;
-            if (path != null && File.Exists(path))
-                m.Items.Add(Ui.Item("Mostrar no Explorador", () => Shell.Reveal(path)));
+            if (it.Running) m.Items.Add(Ui.Item("Nova janela", () => Launch(it)));
+            m.Items.Add(OptionsMenu(it, exe));
+            m.Items.Add(new Separator());
 
-            if (it.Running)
+            if (!it.Running) m.Items.Add(Ui.Item("Abrir", () => Launch(it)));
+            else
             {
-                m.Items.Add(new Separator());
-                m.Items.Add(Ui.Item("Encerrar", () => Shell.CloseAll(it.Windows, it.Name)));
-                // Apps that only hide to the tray on close (Discord, Steam…) need this to really quit.
-                m.Items.Add(Ui.Item("Forçar Encerramento", () => Shell.ForceQuit(it.App?.ExePath, it.Windows.ToList(), it.Name)));
+                var wins = it.Windows.ToList();
+                if (wins.All(Native.IsIconic))
+                    m.Items.Add(Ui.Item("Mostrar", () =>
+                    {
+                        foreach (var w in wins) Native.ShowWindow(w, Native.SW_RESTORE);
+                        Shell.Focus(wins[0]);
+                    }));
+                else m.Items.Add(Ui.Item("Ocultar", () => wins.ForEach(Shell.Minimize)));
+                m.Items.Add(QuitItem(m, it));
             }
         }
 
@@ -890,6 +892,107 @@ internal sealed class DockWindow : Window
         m.Closed += (_, _) => { menuOpen = false; Wake(); };
         Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
+    }
+
+    /// <summary>The app's Jump List (what the taskbar shows on right-click), one titled section per category.</summary>
+    private void AddJumpList(ContextMenu m, DockItem it, string? exe)
+    {
+        List<JumpCategory> cats;
+        try { cats = JumpListAppId(it, exe) is { } id ? JumpLists.Load(id) : new(); }
+        catch (Exception ex) { App.Log(ex); return; }
+
+        foreach (var c in cats)
+        {
+            m.Items.Add(Ui.Header(c.Name));
+            foreach (var j in c.Items)
+            {
+                if (j.IsSeparator) { m.Items.Add(new Separator()); continue; }
+                var item = j;
+                m.Items.Add(Ui.Item(Ui.Shorten(j.Title), () => JumpLists.Launch(item, exe)));
+            }
+        }
+        if (cats.Count > 0) m.Items.Add(new Separator());
+    }
+
+    /// <summary>
+    /// AppID whose Jump List belongs to this item. The running window's one is exact and remembered for when
+    /// the app is closed; otherwise the pin's AUMID, its shortcut's AppID or the exe's implicit AppID,
+    /// keeping the first that Windows has a list for.
+    /// </summary>
+    private string? JumpListAppId(DockItem it, string? exe)
+    {
+        var candidates = new List<string>();
+        if (it.Windows.Count > 0 && JumpLists.AppIdForWindow(it.Windows[0]) is { } live)
+        {
+            candidates.Add(live);
+            if (JumpLists.Exists(live) && (!cfg.JumpListIds.TryGetValue(it.Key, out var old) || old != live))
+            {
+                cfg.JumpListIds[it.Key] = live;
+                cfg.Save();
+            }
+        }
+        if (cfg.JumpListIds.TryGetValue(it.Key, out var cached)) candidates.Add(cached);
+        if ((it.Pin?.Aumid ?? it.App?.Aumid) is { } aumid) candidates.Add(aumid);
+        if (it.Pin?.Path is { } lnk && lnk.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && JumpLists.AppIdForShortcut(lnk) is { } fromLink)
+            candidates.Add(fromLink);
+        if (exe != null && exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)) candidates.AddRange(JumpLists.ImplicitAppIds(exe));
+        return candidates.FirstOrDefault(JumpLists.Exists);
+    }
+
+    /// <summary>"Opções ▸" submenu, as in the macOS Dock.</summary>
+    private MenuItem OptionsMenu(DockItem it, string? exe)
+    {
+        var options = new MenuItem { Header = "Opções" };
+
+        options.Items.Add(Ui.Item("Manter na Dock", () =>
+        {
+            if (it.Pin != null) cfg.Pinned.Remove(it.Pin);
+            else if (it.App != null) cfg.Pinned.Add(new PinnedApp { Path = it.App.ExePath, Aumid = it.App.Aumid });
+            cfg.Save();
+            Rebuild();
+        }, it.Pin != null, enabled: it.Pin != null || it.App != null));
+
+        // Packaged apps cannot be started from their exe in WindowsApps; they start by AUMID.
+        string? aumid = it.Pin?.Aumid ?? it.App?.Aumid;
+        string? loginExe = aumid == null && exe != null && exe.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) ? exe : null;
+        bool canLogin = LoginItems.CanToggle(loginExe, aumid);
+        bool atLogin = canLogin && LoginItems.IsEnabled(loginExe, aumid);
+        options.Items.Add(Ui.Item("Abrir ao Iniciar Sessão", () => LoginItems.Set(loginExe, aumid, it.Name, !atLogin), atLogin, canLogin));
+
+        string? path = it.Pin?.ResolvedPath ?? it.Pin?.Path ?? it.App?.ExePath;
+        options.Items.Add(new Separator());
+        options.Items.Add(Ui.Item("Mostrar no Explorador", () => Shell.Reveal(path!), enabled: path != null && File.Exists(path)));
+        return options;
+    }
+
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int vk);
+    [DllImport("user32.dll")] private static extern bool IsHungAppWindow(IntPtr hwnd);
+
+    /// <summary>
+    /// "Encerrar", which turns into "Forçar Encerramento" while Shift or Alt is held (⌥ on the Mac) or when the
+    /// app is not responding. Apps that only hide to the tray on close (Discord, Steam…) need the forced one.
+    /// </summary>
+    private MenuItem QuitItem(ContextMenu m, DockItem it)
+    {
+        const int VK_SHIFT = 0x10, VK_MENU = 0x12;
+        bool hung = it.Windows.Any(IsHungAppWindow);
+        // The menu never has keyboard focus (the Dock does not activate), so the keys are polled while it is open.
+        bool Force() => hung || GetAsyncKeyState(VK_SHIFT) < 0 || GetAsyncKeyState(VK_MENU) < 0;
+
+        var quit = new MenuItem();
+        void Refresh() => quit.Header = Force() ? "Forçar Encerramento" : "Encerrar";
+        Refresh();
+        quit.Click += (_, _) =>
+        {
+            if (Force()) Shell.ForceQuit(it.App?.ExePath, it.Windows.ToList(), it.Name);
+            else Shell.CloseAll(it.Windows, it.Name);
+        };
+
+        var poll = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(50) };
+        poll.Tick += (_, _) => Refresh();
+        m.Opened += (_, _) => poll.Start();
+        m.Closed += (_, _) => poll.Stop();
+        return quit;
     }
 
     private void OnDragOver(object sender, DragEventArgs e)

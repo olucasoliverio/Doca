@@ -66,6 +66,12 @@ internal sealed class DocaConfig
     /// <summary>Tray icons the user collapsed behind the ⌄ button (NotifyIcon identifiers).</summary>
     public List<string> TrayCollapsed { get; set; } = new();
 
+    /// <summary>
+    /// Jump List AppID last seen on each Dock item's window. Apps often set it only at runtime (Steam's window
+    /// is "Valve.Steam.Client" while its shortcut gives the exe path), so it is kept for when the app is closed.
+    /// </summary>
+    public Dictionary<string, string> JumpListIds { get; set; } = new();
+
     /// <summary>Taskbar auto-hide state before Doca changed it; kept on disk so a crash can still restore it.</summary>
     public bool? TaskbarAutoHideBefore { get; set; }
 

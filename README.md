@@ -25,7 +25,7 @@ Antes de publicar uma mudança grande, passe pela [lista de testes](TESTES.md).
 
 ## Recursos
 
-- **Dock** (uma por tela): ampliação, esconder automaticamente, badges de notificação, barra de progresso (downloads, cópias), pré-visualização de janelas, arrastar para reordenar/fixar/remover, lixeira.
+- **Dock** (uma por tela): ampliação, esconder automaticamente, badges de notificação, barra de progresso (downloads, cópias), pré-visualização de janelas, arrastar para reordenar/fixar/remover, lixeira. Botão direito como no Mac (janelas, Opções, Ocultar, Encerrar/Forçar com Shift ou Alt) e com a **Jump List** do app (recentes, fixados, tarefas como "Nova janela anônima").
 - **Barra de menu** (uma por tela): menus do app em foco, ícones da bandeja (inclusive os escondidos), painéis próprios de calendário, som (volume e saída), Wi-Fi e Bluetooth.
 - **Central de Controle**: Wi-Fi, Bluetooth, modo escuro, projetar, brilho de cada monitor (DDC/CI), volume e música.
 - **Música tocando** na barra (Spotify, YouTube…) com capa, tempo e controles.
@@ -55,6 +55,7 @@ Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 | `Media.cs` | Música tocando (`NowPlaying`, API de mídia do Windows) e o player dos painéis |
 | `Spotlight.cs` | Busca do Alt+Espaço (apps do Menu Iniciar, Configurações, contas) |
 | `AppMenus.cs` | Menus do app (Win32, UI Automation ou menus padrão) |
+| `JumpList.cs`, `LoginItems.cs` | Jump Lists dos apps no botão direito da Dock; "Abrir ao Iniciar Sessão" |
 | `WindowTracker.cs` | Janelas abertas e tela cheia por monitor (WinEvent hooks) |
 | `Tray.cs` | Bandeja do sistema (ManagedShell) e badges |
 | `Preview.cs`, `Corners.cs`, `Hotkeys.cs` | Miniaturas DWM, cantos arredondados, Alt+` |

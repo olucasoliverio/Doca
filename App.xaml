@@ -68,6 +68,12 @@
                             <Trigger Property="IsChecked" Value="True">
                                 <Setter TargetName="Check" Property="Visibility" Value="Visible" />
                             </Trigger>
+                            <!-- Minimized window in the Dock's window list, like the macOS diamond -->
+                            <Trigger Property="Tag" Value="minimized">
+                                <Setter TargetName="Check" Property="Text" Value="◆" />
+                                <Setter TargetName="Check" Property="FontSize" Value="9" />
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="#59FFFFFF" />
                             </Trigger>

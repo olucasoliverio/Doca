@@ -7,7 +7,10 @@ Marque `[x]` ao passar. Anote o que falhar ao lado.
 - [ ] A Dock aparece nas duas telas
 - [ ] Ampliação suave ao passar o mouse; rótulo com o nome do app
 - [ ] Clique abre / traz para frente / minimiza; Shift+clique ou botão do meio abre nova janela
-- [ ] Botão direito: lista de janelas, Manter/Remover da Dock, Mostrar no Explorador, Encerrar
+- [ ] Botão direito: lista de janelas (✓ na da frente, ◆ nas minimizadas), Nova janela, Ocultar/Mostrar, Encerrar
+- [ ] Jump List no botão direito: Chrome (Nova janela anônima, Fechadas recentemente), Steam (jogos recentes, Loja), VS Code (pastas recentes), Explorador (Fixado/Frequentes); clicar abre o item; funciona também com o app fechado
+- [ ] Opções ▸ Manter na Dock (marca/desmarca), Abrir ao Iniciar Sessão (Steam marcado, Discord não; alternar aparece igual no Gerenciador de Tarefas → Inicializar), Mostrar no Explorador
+- [ ] Segurar Shift ou Alt com o menu aberto troca "Encerrar" por "Forçar Encerramento" (e volta ao soltar); app travado já mostra "Forçar"
 - [ ] Arrastar ícone para os lados reordena; arrastar para cima remove; arrastar app aberto para a área fixa fixa
 - [ ] Arrastar um .exe/.lnk/arquivo para a Dock fixa o item
 - [ ] Pré-visualização: parar o mouse num app aberto mostra miniaturas; clique foca; "✕" fecha a janela
@@ -18,6 +21,7 @@ Marque `[x]` ao passar. Anote o que falhar ao lado.
 ## Barra de menu
 - [ ] Aparece nas duas telas; janelas maximizadas param abaixo dela
 - [ ] Nome do app em foco atualiza ao trocar de app
+- [ ] Botão direito em qualquer item (logo, nome do app, Arquivo…, Wi-Fi, Som, Central de Controle, relógio) abre o mesmo menu/painel do esquerdo; botão do meio no Som silencia
 - [ ] Menus do app: WinRAR/Notepad++ (menu real), Bloco de Notas (menu do app), Chrome (menus padrão)
 - [ ] Clicar em um item de menu executa o comando (ex.: Editar → Copiar/Colar no Chrome)
 - [ ] Música: item aparece com Spotify/YouTube tocando, some sem player; painel tem capa, tempo andando, ⏮ ⏯ ⏭ funcionam; clicar na capa abre o player
