@@ -365,8 +365,9 @@ internal static class Shell
     }
 
     private static void ElevatedWarning(string appName) =>
-        MessageBox.Show($"O Windows não deixou o Doca fechar \"{appName}\" porque ele está rodando como administrador.\n\n" +
-                        "Feche pelo próprio app ou pelo Gerenciador de Tarefas.", "Doca", MessageBoxButton.OK, MessageBoxImage.Information);
+        DocaDialog.Info($"Não foi possível fechar \"{appName}\"",
+                        "Ele está rodando como administrador, e o Windows não deixa o Doca fechá-lo. " +
+                        "Feche pelo próprio app ou pelo Gerenciador de Tarefas.");
 
     public static void ToggleMaximize(IntPtr h) => Native.ShowWindow(h, Native.IsZoomed(h) ? Native.SW_RESTORE : Native.SW_MAXIMIZE);
 

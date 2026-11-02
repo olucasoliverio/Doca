@@ -221,11 +221,10 @@ public partial class App : Application
         // Only the Dock itself conflicts; helper/launcher processes alone are harmless.
         if (!new[] { "Dock_64", "dock" }.SelectMany(Process.GetProcessesByName).Any()) return;
         var running = myDockFinderProcesses.SelectMany(Process.GetProcessesByName).ToList();
-        var answer = MessageBox.Show(
-            "O MyDockFinder está aberto. Ele também esconde a barra de tarefas e reserva espaço na tela, " +
-            "então os dois juntos vão conflitar.\n\nFechar o MyDockFinder agora?",
-            "Doca", MessageBoxButton.YesNo, MessageBoxImage.Question);
-        if (answer != MessageBoxResult.Yes) return;
+        bool close = DocaDialog.Ask(DocaDialog.Kind.Question, "Fechar o MyDockFinder?",
+            "Ele também esconde a barra de tarefas e reserva espaço na tela, então os dois juntos vão conflitar.",
+            "Fechar", "Manter");
+        if (!close) return;
         foreach (var p in running)
         {
             try { p.Kill(); p.WaitForExit(2000); } catch (Exception ex) { Log(ex); }

@@ -307,11 +307,17 @@ internal sealed class MenuBarWindow : Window
         m.Items.Add(Ui.Item("Gerenciador de Tarefas", () => Shell.Open("taskmgr.exe")));
         m.Items.Add(new Separator());
         m.Items.Add(Ui.Item("Suspender", () => Native.SetSuspendState(false, false, false)));
-        m.Items.Add(Ui.Item("Reiniciar…", () => Confirm("Reiniciar o computador agora?", () => Shell.Open("shutdown.exe", "/r /t 0"))));
-        m.Items.Add(Ui.Item("Desligar…", () => Confirm("Desligar o computador agora?", () => Shell.Open("shutdown.exe", "/s /t 0"))));
+        m.Items.Add(Ui.Item("Reiniciar…", () => Confirm(DocaDialog.Kind.Restart, "Reiniciar o computador agora?",
+            "Salve o que estiver fazendo: os apps abertos serão fechados.", "Reiniciar",
+            () => Shell.Open("shutdown.exe", "/r /t 0"))));
+        m.Items.Add(Ui.Item("Desligar…", () => Confirm(DocaDialog.Kind.Shutdown, "Desligar o computador agora?",
+            "Salve o que estiver fazendo: os apps abertos serão fechados.", "Desligar",
+            () => Shell.Open("shutdown.exe", "/s /t 0"))));
         m.Items.Add(new Separator());
         m.Items.Add(Ui.Item("Bloquear Tela", () => Native.LockWorkStation()));
-        m.Items.Add(Ui.Item("Encerrar Sessão…", () => Confirm("Encerrar a sessão agora?", () => Shell.Open("shutdown.exe", "/l"))));
+        m.Items.Add(Ui.Item("Encerrar Sessão…", () => Confirm(DocaDialog.Kind.SignOut, "Encerrar a sessão agora?",
+            "Os apps abertos serão fechados e você voltará para a tela de entrada.", "Encerrar Sessão",
+            () => Shell.Open("shutdown.exe", "/l"))));
         m.Items.Add(new Separator());
         m.Items.Add(Ui.Item("Preferências do Doca…", App.ShowSettings));
         m.Items.Add(Ui.Item("Iniciar com o Windows", Startup.Toggle, Startup.Enabled));
@@ -348,10 +354,8 @@ internal sealed class MenuBarWindow : Window
         Open(b, m);
     }
 
-    private static void Confirm(string text, Action action)
-    {
-        if (MessageBox.Show(text, "Doca", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes) action();
-    }
+    private void Confirm(DocaDialog.Kind kind, string title, string message, string actionText, Action action) =>
+        DocaDialog.Confirm(kind, title, message, actionText, action, cfg.Font);
 
     #endregion
 
