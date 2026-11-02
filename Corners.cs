@@ -18,10 +18,23 @@ internal sealed class CornerWindow : Window
     private static readonly List<CornerWindow> all = new();
     private static DispatcherTimer? safety;
 
-    /// <summary>Puts the corners back above other topmost windows (our bars included) after something reappears.</summary>
+    /// <summary>Set by App: monitors with a fullscreen app (game, video) get no corners.</summary>
+    public static Func<IntPtr, bool>? IsFullscreen;
+
+    /// <summary>
+    /// Puts the corners back above other topmost windows (our bars included) after something reappears.
+    /// On a fullscreen monitor they are hidden instead: a topmost window over a game draws black corners on
+    /// it and, worse, forces DWM to composite it (no independent flip: stutter, input lag; exclusive
+    /// fullscreen games may even minimize).
+    /// </summary>
     public static void BringAllToTop()
     {
-        foreach (var c in all) c.Place();
+        foreach (var c in all.ToList())
+        {
+            if (IsFullscreen?.Invoke(c.monitor) == true) { if (c.IsVisible) c.Hide(); continue; }
+            if (!c.IsVisible) c.Show();
+            c.Place();
+        }
     }
 
     public static List<CornerWindow> CreateFor(Native.Monitor m, double radius)
@@ -30,7 +43,7 @@ internal sealed class CornerWindow : Window
         for (int c = 0; c < 4; c++)
         {
             var w = new CornerWindow(m.Handle, c, radius);
-            w.Show();
+            if (IsFullscreen?.Invoke(m.Handle) != true) w.Show();
             list.Add(w);
         }
         return list;

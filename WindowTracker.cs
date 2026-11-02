@@ -135,7 +135,7 @@ internal sealed class WindowTracker : IDisposable
     /// If it covers the whole monitor (Chrome video, games, F11) that monitor is fullscreen.
     /// Maximized windows never qualify because the menu bar's AppBar keeps them off the top strip.
     /// </summary>
-    private void CheckFullscreen()
+    public void CheckFullscreen()
     {
         var pending = Native.Monitors().ToDictionary(m => m.Handle, m => m.Bounds);
         var result = new HashSet<IntPtr>();

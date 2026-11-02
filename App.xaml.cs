@@ -66,6 +66,7 @@ public partial class App : Application
         NowPlaying.Start();
         WindowCycler.Start(cfg, tracker);
         SpotlightHotkey.Start(cfg);
+        CornerWindow.IsFullscreen = tracker.IsFullscreen;
         CreateScreens();
         if (e.Args.Contains("--settings")) ShowSettings();
         tracker.FullscreenChanged += CornerWindow.BringAllToTop;
@@ -100,19 +101,24 @@ public partial class App : Application
         bars.Clear();
         docks.Clear();
         corners.Clear();
+        // Games often switch resolution when they enter fullscreen, which lands here. New windows are
+        // topmost: showing them over the game kicked it out of fullscreen (or minimized it). Windows on a
+        // fullscreen monitor are created hidden; FullscreenChanged shows them once the game leaves.
+        tracker!.CheckFullscreen();
         foreach (var m in Native.Monitors().OrderByDescending(m => m.Primary))
         {
+            bool fs = tracker.IsFullscreen(m.Handle);
             if (cfg!.ScreenCorners) corners.AddRange(CornerWindow.CreateFor(m, cfg.ScreenCornerRadius));
             if (cfg!.MenuBarAllScreens || m.Primary)
             {
                 var b = new MenuBarWindow(cfg, tracker!, m.Handle);
-                b.Show();
+                if (!fs) b.Show();
                 bars.Add(b);
             }
             if (cfg.DockAllScreens || m.Primary)
             {
                 var d = new DockWindow(cfg, tracker!, m.Handle);
-                d.Show();
+                if (!fs) d.Show();
                 docks.Add(d);
             }
         }
