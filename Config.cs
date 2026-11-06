@@ -113,7 +113,8 @@ internal sealed class DocaConfig
     {
         if (p.Path != null && p.Path.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase))
             p.ResolvedPath = Shell.ResolveShortcut(p.Path);
-        else if (p.Path != null && !File.Exists(p.Path) && Shell.UpdatedSquirrelPath(p.Path) is { } updated)
+        else if (p.Path != null && !File.Exists(p.Path) &&
+                 (Shell.UpdatedSquirrelPath(p.Path) ?? Shell.UpdatedPackagedPath(p.Path)) is { } updated)
             p.Path = updated;
     }
 

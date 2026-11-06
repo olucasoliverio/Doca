@@ -272,6 +272,26 @@ internal static class Shell
         catch { return null; }
     }
 
+    /// <summary>
+    /// Current exe of a packaged app whose pinned version folder (…\WindowsApps\Name_1.2.3.0_x64__hash\…) was removed
+    /// by an update. WindowsApps cannot be listed without admin, but PackageManager can find the user's installed
+    /// package by family name, so the pin heals even while the app is closed (its icon would otherwise go blank).
+    /// </summary>
+    public static string? UpdatedPackagedPath(string path)
+    {
+        var m = Regex.Match(path, @"\\WindowsApps\\([^\\_]+)_[^\\_]+_[^\\_]*_[^\\_]*_([^\\_]+)\\(.+)$", RegexOptions.IgnoreCase);
+        if (!m.Success) return null;
+        try
+        {
+            string family = m.Groups[1].Value + "_" + m.Groups[2].Value;
+            return new Windows.Management.Deployment.PackageManager()
+                .FindPackagesForUser(string.Empty, family)
+                .Select(p => Path.Combine(p.InstalledLocation.Path, m.Groups[3].Value))
+                .FirstOrDefault(File.Exists);
+        }
+        catch (Exception ex) { App.Log(ex); return null; }
+    }
+
     /// <summary>AppUserModelID of a window (used for UWP apps hosted by ApplicationFrameHost).</summary>
     public static string? WindowAumid(IntPtr hwnd)
     {
