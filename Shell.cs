@@ -152,6 +152,29 @@ internal static class Shell
             for (int i = 3; i < px.Length; i += 4) px[i] = 255;
             minX = minY = 0; maxX = w - 1; maxY = h - 1;
         }
+        else if (minX == 0 || minY == 0 || maxX >= w - 8 || maxY >= h - 8)
+        {
+            // Exes with only small icons (e.g. VALORANT) come back as a tiny icon centered inside a thin
+            // light frame drawn by the shell at the canvas edge. Ignore that frame when finding the content.
+            int m = Math.Max(4, w / 32);
+            int iMinX = w, iMinY = h, iMaxX = -1, iMaxY = -1;
+            for (int y = m; y < h - m; y++)
+                for (int x = m; x < w - m; x++)
+                    if (px[(y * w + x) * 4 + 3] != 0)
+                    {
+                        if (x < iMinX) iMinX = x; if (x > iMaxX) iMaxX = x;
+                        if (y < iMinY) iMinY = y; if (y > iMaxY) iMaxY = y;
+                    }
+            if (iMaxX >= 0 && Math.Max(iMaxX - iMinX + 1, iMaxY - iMinY + 1) < w * 0.6)
+            {
+                // Clear the frame so it can't bleed into the crop.
+                for (int y = 0; y < h; y++)
+                    for (int x = 0; x < w; x++)
+                        if (x < m || y < m || x >= w - m || y >= h - m)
+                            Array.Clear(px, (y * w + x) * 4, 4);
+                minX = iMinX; minY = iMinY; maxX = iMaxX; maxY = iMaxY;
+            }
+        }
 
         BitmapSource bmp = BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, px, w * 4);
         int side = Math.Max(maxX - minX + 1, maxY - minY + 1);
