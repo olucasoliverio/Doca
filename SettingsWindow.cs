@@ -110,6 +110,8 @@ internal sealed class SettingsWindow : Window
                 () => cfg.DockAllScreens, v => { cfg.DockAllScreens = v; Changed(Apply.Screens); }),
             Toggle("Ocultar automaticamente", "A Dock fica escondida e aparece ao encostar o mouse na borda de baixo.",
                 () => cfg.AutoHideDock, v => { cfg.AutoHideDock = v; Changed(Apply.Dock); }),
+            Toggle("Mostrar em tela cheia ao apontar para baixo", "Num vídeo em tela cheia, deixar o ponteiro na borda de baixo mostra a Dock por cima, como no Mac.",
+                () => cfg.DockRevealInFullscreen, v => { cfg.DockRevealInFullscreen = v; Changed(Apply.Dock); }),
             Toggle("Pré-visualização das janelas", "Ao parar o mouse sobre um app aberto, mostra miniaturas ao vivo das janelas dele.",
                 () => cfg.WindowPreviews, v => { cfg.WindowPreviews = v; Changed(Apply.Dock); })),
         Card(

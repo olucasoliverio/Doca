@@ -92,6 +92,19 @@ internal static class Native
     [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int cx, int cy, uint flags);
     [DllImport("user32.dll")] public static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] public static extern bool GetClipCursor(out RECT r);
+
+    /// <summary>Games lock the pointer inside their window; the bar and Dock never pop over one of those.</summary>
+    public static bool CursorClipped()
+    {
+        if (!GetClipCursor(out var c)) return false;
+        int l = int.MaxValue, t = int.MaxValue, r = int.MinValue, b = int.MinValue;
+        foreach (var m in Monitors())
+        {
+            l = Math.Min(l, m.Bounds.Left); t = Math.Min(t, m.Bounds.Top);
+            r = Math.Max(r, m.Bounds.Right); b = Math.Max(b, m.Bounds.Bottom);
+        }
+        return c.Left > l || c.Top > t || c.Right < r || c.Bottom < b;
+    }
     [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool attach);
     [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
     [DllImport("user32.dll")] public static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr hmod, WinEventProc proc, uint pid, uint tid, uint flags);

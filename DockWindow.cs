@@ -69,6 +69,11 @@ internal sealed class DockWindow : Window
     private DockItem? hot, pressed;
     private bool menuOpen;
     private double revealUntil;
+    /// <summary>Shown over a fullscreen app because the pointer rests on the bottom edge; behaves as auto-hide.</summary>
+    private bool fsRevealed;
+    private int revealTicks;
+    private readonly DispatcherTimer revealTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(80) };
+    private bool AutoHide => cfg.AutoHideDock || fsRevealed;
 
     // Drag to reorder.
     private bool dragging;
@@ -162,6 +167,7 @@ internal sealed class DockWindow : Window
 
         tracker.AppsChanged += Rebuild;
         tracker.FullscreenChanged += OnFullscreenChanged;
+        revealTimer.Tick += (_, _) => OnRevealTick();
         Badges.Changed += OnBadgesChanged;
         previewTimer.Tick += (_, _) => OnPreviewTimer();
         SettingsChanged += OnSettingsChanged;
@@ -175,6 +181,7 @@ internal sealed class DockWindow : Window
             SettingsChanged -= OnSettingsChanged;
             if (looping) CompositionTarget.Rendering -= OnFrame;
             looping = false;
+            revealTimer.Stop();
             appBar?.Release();
             previewTimer.Stop();
             preview?.Close();
@@ -229,8 +236,53 @@ internal sealed class DockWindow : Window
     {
         if (closed) return;
         bool fs = tracker.IsFullscreen(monitor);
-        if (fs && IsVisible) { HidePreview(); Hide(); }
-        else if (!fs && !IsVisible) { Show(); Reposition(); }
+        if (!fs)
+        {
+            revealTimer.Stop();
+            if (!IsVisible || fsRevealed) { fsRevealed = false; Show(); Reposition(); }
+            return;
+        }
+        if (fsRevealed) return; // EndReveal hides it once it has slid away
+        if (IsVisible) { HidePreview(); Hide(); }
+        // Polled only while fullscreen (see MenuBarWindow.UpdateVisibility).
+        revealTicks = 0;
+        if (cfg.DockRevealInFullscreen) revealTimer.Start();
+    }
+
+    /// <summary>~250 ms on the bottom edge of a fullscreen monitor brings the Dock up (sliding, as auto-hide).</summary>
+    private void OnRevealTick()
+    {
+        if (closed || fsRevealed || !cfg.DockRevealInFullscreen) { revealTimer.Stop(); return; }
+        if (!Native.GetCursorPos(out var p)) return;
+        var b = Native.MonitorInfo(monitor).Bounds;
+        bool atEdge = p.X >= b.Left && p.X < b.Right && p.Y >= b.Bottom - 2 && p.Y < b.Bottom && !Native.CursorClipped();
+        revealTicks = atEdge ? revealTicks + 1 : 0;
+        if (revealTicks < 3) return;
+        revealTimer.Stop();
+        fsRevealed = true;
+        hideOffset = HiddenOffset; // start tucked, slide up
+        lastInside = clock.Elapsed.TotalSeconds;
+        Show(); // the first Show (Dock born hidden) runs SourceInitialized → Reposition
+        if (hwnd != IntPtr.Zero)
+            Native.SetWindowPos(hwnd, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+        region = null;
+        Wake();
+    }
+
+    /// <summary>The revealed Dock finished sliding away: hide the window again and go back to watching the edge.</summary>
+    private void EndReveal()
+    {
+        fsRevealed = false;
+        HidePreview();
+        if (tracker.IsFullscreen(monitor))
+        {
+            Hide();
+            hideOffset = cfg.AutoHideDock ? HiddenOffset : 0;
+            region = null;
+            revealTicks = 0;
+            if (cfg.DockRevealInFullscreen) revealTimer.Start();
+        }
+        else Reposition();
     }
 
     #region Model
@@ -345,6 +397,7 @@ internal sealed class DockWindow : Window
         {
             CompositionTarget.Rendering -= OnFrame;
             looping = false;
+            if (fsRevealed && hideOffset >= HiddenOffset - 0.2) EndReveal();
         }
     }
 
@@ -365,21 +418,21 @@ internal sealed class DockWindow : Window
         Native.GetCursorPos(out var p);
         double px = (p.X - winX) / scale, py = (p.Y - winY) / scale;
         double w = winW / scale;
-        bool hidden = cfg.AutoHideDock && hideOffset > PanelH * 0.5;
+        bool hidden = AutoHide && hideOffset > PanelH * 0.5;
 
         // "inside": over the Dock itself (magnification, hover, clicks).
         // "present": also touching the bottom edge anywhere, which reveals an auto-hidden Dock and
         // keeps it up while the pointer stays there (otherwise it flickers at the screen's sides).
         bool atEdge = px >= 0 && px <= w && py >= WinHDip - 3 && py <= WinHDip + 1;
         inside = !hidden && px >= panelL && px <= panelR && py >= IconsTop() - 6 && py <= WinHDip + 1;
-        bool present = inside || (cfg.AutoHideDock && atEdge);
+        bool present = inside || (AutoHide && atEdge);
         if (present) lastInside = now;
         if (inside) mouseX = px;
 
         bool magnify = inside && cfg.Magnification && !menuOpen;
         busy |= Approach(ref hover, magnify ? 1 : 0, 13, dt);
 
-        if (cfg.AutoHideDock)
+        if (AutoHide)
         {
             bool show = present || menuOpen || dragging || now - lastInside < 0.4 || now < revealUntil;
             if (!present && show) busy = true;
@@ -492,13 +545,13 @@ internal sealed class DockWindow : Window
         var edge = new Int32Rect(0, winH - 2, winW, 2);
         (Int32Rect a, Int32Rect? b) want;
         if (full) want = (new Int32Rect(0, 0, winW, winH), null);
-        else if (cfg.AutoHideDock && hideOffset > 1) want = (edge, null);
+        else if (AutoHide && hideOffset > 1) want = (edge, null);
         else
         {
             int l = (int)Math.Floor((panelL - 2) * scale), t = (int)Math.Floor((panelTop - 2) * scale);
             var dock = new Int32Rect(l, t, (int)Math.Ceiling((panelR - panelL + 4) * scale), winH - t);
             // An open auto-hide Dock keeps listening along the whole bottom edge so it notices when the pointer leaves.
-            want = (dock, cfg.AutoHideDock ? edge : null);
+            want = (dock, AutoHide ? edge : null);
         }
         if (region == want) return;
         region = want;

@@ -293,7 +293,7 @@ internal sealed class MenuBarWindow : Window
 
         if (!revealed)
         {
-            bool atEdge = onMonitor && p.Y <= b.Top && p.Y >= b.Top - 1 && !CursorClipped();
+            bool atEdge = onMonitor && p.Y <= b.Top && p.Y >= b.Top - 1 && !Native.CursorClipped();
             revealTicks = atEdge ? revealTicks + 1 : 0;
             if (revealTicks < 3) return;
             revealed = true;
@@ -314,19 +314,6 @@ internal sealed class MenuBarWindow : Window
         revealTicks = 0;
         if (tracker.IsFullscreen(monitor)) Hide();
         else { revealTimer.Stop(); Reposition(); }
-    }
-
-    /// <summary>Games lock the pointer inside their window; never pop the bar over one of those.</summary>
-    private static bool CursorClipped()
-    {
-        if (!Native.GetClipCursor(out var c)) return false;
-        int l = int.MaxValue, t = int.MaxValue, r = int.MinValue, bt = int.MinValue;
-        foreach (var m in Native.Monitors())
-        {
-            l = Math.Min(l, m.Bounds.Left); t = Math.Min(t, m.Bounds.Top);
-            r = Math.Max(r, m.Bounds.Right); bt = Math.Max(bt, m.Bounds.Bottom);
-        }
-        return c.Left > l || c.Top > t || c.Right < r || c.Bottom < bt;
     }
 
     private Border Item(UIElement content, Action<Border> click, string? tip)
