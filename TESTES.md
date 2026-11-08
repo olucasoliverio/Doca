@@ -38,6 +38,9 @@ Marque `[x]` ao passar. Anote o que falhar ao lado.
 ## Tela cheia e sistema
 - [ ] Vídeo do Chrome em tela cheia: barra e Dock somem só naquela tela
 - [ ] Jogo em tela cheia: idem; voltam ao sair
+- [ ] Vídeo em tela cheia: ponteiro no topo por ~¼ s mostra a barra por cima; some ao descer (não some com menu/painel aberto); o vídeo continua em tela cheia
+- [ ] Jogo com o ponteiro preso (Valorant em partida): a barra não aparece no topo
+- [ ] Chrome maximizado na segunda tela ao abrir um jogo: a barra continua lá e o Chrome não trava
 - [ ] Alt+` alterna janelas do mesmo app; Alt+Shift+` volta
 - [ ] Cantos arredondados nas duas telas
 - [ ] Monitor com escala diferente (125%/150%): tamanhos e posições corretos

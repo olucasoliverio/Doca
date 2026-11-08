@@ -100,6 +100,11 @@ internal sealed class MenuBarWindow : Window
     private AppBar? appBar;
     private int statusTicks;
     private bool closed;
+    private int menusOpen;
+    /// <summary>Shown over a fullscreen app because the pointer rests on the top edge.</summary>
+    private bool revealed;
+    private int revealTicks;
+    private readonly DispatcherTimer revealTimer = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(80) };
 
     private static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
@@ -215,11 +220,13 @@ internal sealed class MenuBarWindow : Window
             NetworkChange.NetworkAvailabilityChanged -= OnNetworkChanged;
             clockTimer.Stop();
             statusTimer.Stop();
+            revealTimer.Stop();
             appBar?.Release();
         };
 
         clockTimer.Tick += (_, _) => UpdateClock();
         statusTimer.Tick += (_, _) => UpdateStatus();
+        revealTimer.Tick += (_, _) => OnRevealTick();
 
         UpdateAppName();
         UpdateNowPlaying();
@@ -258,8 +265,68 @@ internal sealed class MenuBarWindow : Window
     {
         if (closed) return;
         bool fs = tracker.IsFullscreen(monitor);
-        if (fs && IsVisible) Hide();
-        else if (!fs && !IsVisible) { Show(); Reposition(); }
+        if (!fs)
+        {
+            revealTimer.Stop();
+            // Only when coming back: Reserve → ABM_SETPOS makes the shell re-lay out maximized windows.
+            if (!IsVisible || revealed) { revealed = false; Show(); Reposition(); }
+            return;
+        }
+        if (revealed) return; // the pointer is on it; OnRevealTick hides it once the pointer leaves
+        if (IsVisible) Hide();
+        // Polled (only while fullscreen): a low-level mouse hook would add latency to every mouse move,
+        // games included, and a hidden bar gets no mouse events.
+        revealTicks = 0;
+        if (cfg.MenuBarRevealInFullscreen) revealTimer.Start();
+    }
+
+    /// <summary>
+    /// macOS-style reveal over a fullscreen app: ~250 ms on the top edge shows the bar (not activated, so the
+    /// video keeps focus and stays fullscreen); it goes away ~400 ms after the pointer leaves it, unless one of
+    /// its menus or panels is open.
+    /// </summary>
+    private void OnRevealTick()
+    {
+        if (closed || !Native.GetCursorPos(out var p)) return;
+        var b = Native.MonitorInfo(monitor).Bounds;
+        bool onMonitor = p.X >= b.Left && p.X < b.Right;
+
+        if (!revealed)
+        {
+            bool atEdge = onMonitor && p.Y <= b.Top && p.Y >= b.Top - 1 && !CursorClipped();
+            revealTicks = atEdge ? revealTicks + 1 : 0;
+            if (revealTicks < 3) return;
+            revealed = true;
+            revealTicks = 0;
+            Show();
+            var h = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+            // Above the fullscreen window even when it is topmost itself (some players are).
+            Native.SetWindowPos(h, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
+            return;
+        }
+
+        int barBottom = b.Top + (int)Math.Round(cfg.MenuBarHeight * Native.MonitorInfo(monitor).Scale);
+        bool over = onMonitor && p.Y < barBottom + 6;
+        bool busy = menusOpen > 0 || Flyout.IsOpen || Native.FindWindow("#32768", null) != IntPtr.Zero; // #32768: a Win32 menu
+        revealTicks = over || busy ? 0 : revealTicks + 1;
+        if (revealTicks < 5) return;
+        revealed = false;
+        revealTicks = 0;
+        if (tracker.IsFullscreen(monitor)) Hide();
+        else { revealTimer.Stop(); Reposition(); }
+    }
+
+    /// <summary>Games lock the pointer inside their window; never pop the bar over one of those.</summary>
+    private static bool CursorClipped()
+    {
+        if (!Native.GetClipCursor(out var c)) return false;
+        int l = int.MaxValue, t = int.MaxValue, r = int.MinValue, bt = int.MinValue;
+        foreach (var m in Native.Monitors())
+        {
+            l = Math.Min(l, m.Bounds.Left); t = Math.Min(t, m.Bounds.Top);
+            r = Math.Max(r, m.Bounds.Right); bt = Math.Max(bt, m.Bounds.Bottom);
+        }
+        return c.Left > l || c.Top > t || c.Right < r || c.Bottom < bt;
     }
 
     private Border Item(UIElement content, Action<Border> click, string? tip)
@@ -289,8 +356,8 @@ internal sealed class MenuBarWindow : Window
         m.PlacementTarget = anchor;
         m.Placement = PlacementMode.Bottom;
         m.VerticalOffset = 3;
-        m.Opened += (_, _) => anchor.Background = hoverBrush;
-        m.Closed += (_, _) => { if (!anchor.IsMouseOver) anchor.Background = Brushes.Transparent; };
+        m.Opened += (_, _) => { menusOpen++; anchor.Background = hoverBrush; };
+        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); if (!anchor.IsMouseOver) anchor.Background = Brushes.Transparent; };
         Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }

@@ -49,6 +49,8 @@ internal sealed class DocaConfig
     public double MenuBarHeight { get; set; } = 28;
     public bool MenuBarAllScreens { get; set; } = true;
     public double MenuBarOpacity { get; set; } = 0.55;
+    /// <summary>In fullscreen (video), resting the pointer on the top edge shows the bar over it, like macOS.</summary>
+    public bool MenuBarRevealInFullscreen { get; set; } = true;
     public bool ShowTrayIcons { get; set; } = true;
     public bool ShowNowPlaying { get; set; } = true;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.

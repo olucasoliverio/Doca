@@ -17,6 +17,9 @@ namespace Doca;
 internal abstract class Flyout : Window
 {
     private static Flyout? current;
+
+    /// <summary>A panel is open (the menu bar revealed over fullscreen stays while it is).</summary>
+    public static bool IsOpen => current != null;
     private static string? lastKey;
     private static DateTime lastClosed;
 

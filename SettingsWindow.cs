@@ -133,7 +133,9 @@ internal sealed class SettingsWindow : Window
             Toggle("Mostrar em todas as telas", "Uma barra em cada monitor. Desligado: só na tela principal.",
                 () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); }),
             SliderRow("Altura", 22, 40, () => cfg.MenuBarHeight, v => { cfg.MenuBarHeight = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
-            SliderRow("Opacidade", 0.1, 1, () => cfg.MenuBarOpacity, v => { cfg.MenuBarOpacity = v; Changed(Apply.Screens); }, v => $"{v * 100:0}%")),
+            SliderRow("Opacidade", 0.1, 1, () => cfg.MenuBarOpacity, v => { cfg.MenuBarOpacity = v; Changed(Apply.Screens); }, v => $"{v * 100:0}%"),
+            Toggle("Mostrar em tela cheia ao apontar para o topo", "Num vídeo em tela cheia, deixar o ponteiro no alto da tela mostra a barra por cima, como no Mac.",
+                () => cfg.MenuBarRevealInFullscreen, v => { cfg.MenuBarRevealInFullscreen = v; Changed(Apply.Screens); })),
         Card(
             Toggle("Menus do app", "Mostra os menus do app em foco (Arquivo, Editar…). Apps sem menu ganham menus padrão com os atalhos universais.",
                 () => cfg.AppMenus, v => { cfg.AppMenus = v; Changed(Apply.Screens); })),
