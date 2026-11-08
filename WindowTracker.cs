@@ -159,7 +159,9 @@ internal sealed class WindowTracker : IDisposable
             // enough: whenever our AppBar is gone (screens being rebuilt after a game switched display mode) it
             // grows to the whole monitor, the monitor read as fullscreen, the new bar was born hidden and never
             // reserved its strip again, so the window stayed full-size and the monitor stayed "fullscreen".
-            bool maximized = Native.IsZoomed(h) && (Native.GetWindowLongPtr(h, Native.GWL_STYLE).ToInt64() & Native.WS_CAPTION) == Native.WS_CAPTION;
+            long style = Native.GetWindowLongPtr(h, Native.GWL_STYLE).ToInt64();
+            bool captioned = (style & Native.WS_CAPTION) == Native.WS_CAPTION;
+            bool maximized = captioned && Native.IsZoomed(h);
             bool candidate = !maximized && (app || h == fg || Native.GetWindowTextLength(h) > 0);
             foreach (var (mon, b) in pending.ToList())
             {
@@ -167,6 +169,7 @@ internal sealed class WindowTracker : IDisposable
                 // show over it); without it, clicking the other screen brought the bar back over the video.
                 const int slack = 4;
                 bool covers = r.Left <= b.Left + slack && r.Top <= b.Top + slack && r.Right >= b.Right - slack && r.Bottom >= b.Bottom - slack;
+                if (!covers && candidate && !captioned && h == fg && SnapToMonitor(h, r, b)) covers = true;
                 if (covers && candidate) { result.Add(mon); pending.Remove(mon); }
                 else if (app && r.Left < b.Right && r.Right > b.Left && r.Top < b.Bottom && r.Bottom > b.Top) pending.Remove(mon);
             }
@@ -176,6 +179,30 @@ internal sealed class WindowTracker : IDisposable
         if (result.SetEquals(fullscreenMonitors)) return;
         fullscreenMonitors = result;
         FullscreenChanged?.Invoke();
+    }
+
+    /// <summary>
+    /// Borderless "windowed fullscreen" games (Valorant) place their monitor-sized window at the work area's
+    /// origin, i.e. right below our menu bar: the bar covered the top of the game, its bottom ran off the
+    /// screen and the monitor never read as fullscreen. A captionless, monitor-sized window that is only
+    /// shifted by about a bar's height is put back on the monitor's origin.
+    /// </summary>
+    private static IntPtr snapWindow;
+    private static DateTime snapSince;
+    private static int snapCount;
+
+    private static bool SnapToMonitor(IntPtr h, Native.RECT r, Native.RECT b)
+    {
+        const int size = 4, shift = 80;
+        if (r.Width < b.Width - size || r.Height < b.Height - size || r.Width > b.Width + size || r.Height > b.Height + size) return false;
+        int dx = r.Left - b.Left, dy = r.Top - b.Top;
+        if (dx == 0 && dy == 0 || Math.Abs(dx) > shift || Math.Abs(dy) > shift) return false;
+        // A game that keeps moving itself back would ping-pong with us every frame: give up after a few tries.
+        var now = DateTime.UtcNow;
+        if (h != snapWindow || now - snapSince > TimeSpan.FromSeconds(10)) { snapWindow = h; snapSince = now; snapCount = 0; }
+        if (++snapCount > 3) return false;
+        const uint flags = Native.SWP_NOZORDER | Native.SWP_NOACTIVATE | 0x200 /* SWP_NOOWNERZORDER */;
+        return Native.SetWindowPos(h, IntPtr.Zero, b.Left, b.Top, b.Width, b.Height, flags);
     }
 
     public void Refresh()
