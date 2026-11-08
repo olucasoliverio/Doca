@@ -88,13 +88,28 @@ public partial class App : Application
 
         // Monitors plugged/unplugged or resolution changed: rebuild the bar and Dock of every screen.
         var displayDebounce = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
-        displayDebounce.Tick += (_, _) => { displayDebounce.Stop(); CreateScreens(); };
+        displayDebounce.Tick += (_, _) =>
+        {
+            displayDebounce.Stop();
+            Taskbar.EnsureHidden();
+            // Games fire this when entering fullscreen even if only the refresh rate/mode changes. Tearing every
+            // screen down then released the AppBars of the *other* monitors too (their maximized windows jumped
+            // to full size and back), so rebuild only when the monitors themselves changed.
+            if (MonitorLayout() == screensLayout) tracker!.CheckFullscreen();
+            else CreateScreens();
+        };
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += (_, _) => Dispatcher.BeginInvoke(() => { displayDebounce.Stop(); displayDebounce.Start(); });
     }
+
+    private string? screensLayout;
+
+    private static string MonitorLayout() => string.Join(";", Native.Monitors().Select(m =>
+        $"{m.Handle}:{m.Bounds.Left},{m.Bounds.Top},{m.Bounds.Right},{m.Bounds.Bottom}:{m.Scale}:{m.Primary}"));
 
     /// <summary>One menu bar and one Dock per monitor (or only the primary one, per settings).</summary>
     private void CreateScreens()
     {
+        screensLayout = MonitorLayout();
         foreach (var b in bars) b.Close();
         foreach (var d in docks) d.Close();
         foreach (var c in corners) c.Close();

@@ -155,7 +155,12 @@ internal sealed class WindowTracker : IDisposable
             if (!Native.GetVisibleRect(h, out var r) || r.Width <= 0 || r.Height <= 0) return true;
 
             bool app = IsAppWindow(h);
-            bool candidate = app || h == fg || Native.GetWindowTextLength(h) > 0;
+            // A maximized window with a title bar (Chrome, Explorer) is never fullscreen. Its size alone is not
+            // enough: whenever our AppBar is gone (screens being rebuilt after a game switched display mode) it
+            // grows to the whole monitor, the monitor read as fullscreen, the new bar was born hidden and never
+            // reserved its strip again, so the window stayed full-size and the monitor stayed "fullscreen".
+            bool maximized = Native.IsZoomed(h) && (Native.GetWindowLongPtr(h, Native.GWL_STYLE).ToInt64() & Native.WS_CAPTION) == Native.WS_CAPTION;
+            bool candidate = !maximized && (app || h == fg || Native.GetWindowTextLength(h) > 0);
             foreach (var (mon, b) in pending.ToList())
             {
                 // Slack: Chrome shrinks a fullscreen window by 1 px when it loses focus (so the taskbar can

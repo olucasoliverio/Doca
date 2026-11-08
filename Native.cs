@@ -51,7 +51,7 @@ internal static class Native
     public delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
 
     public const int GWL_STYLE = -16, GWL_EXSTYLE = -20;
-    public const long WS_CHILD = 0x40000000;
+    public const long WS_CHILD = 0x40000000, WS_CAPTION = 0x00C00000;
     public const long WS_EX_TRANSPARENT = 0x20;
     public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
     public const long WS_EX_TOOLWINDOW = 0x80, WS_EX_APPWINDOW = 0x40000, WS_EX_NOACTIVATE = 0x08000000;

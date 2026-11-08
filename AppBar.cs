@@ -126,7 +126,18 @@ internal static class Taskbar
     }
 
     /// <summary>Cheap check used on every window "show" event.</summary>
-    public static bool IsTaskbar(IntPtr h) => hidden && cached.Contains(h);
+    /// <remarks>
+    /// Also matched by class: after a display mode change (games entering fullscreen) Explorer recreates the
+    /// secondary taskbars, and new handles missing from the cache stayed visible until the 10 s guard.
+    /// </remarks>
+    public static bool IsTaskbar(IntPtr h)
+    {
+        if (!hidden) return false;
+        if (cached.Contains(h)) return true;
+        string cls = Native.ClassName(h);
+        return (cls == "Shell_TrayWnd" || cls == "Shell_SecondaryTrayWnd") &&
+               Native.GetWindowThreadProcessId(h, out uint pid) != 0 && pid != (uint)Environment.ProcessId;
+    }
 
     private static bool GetAutoHide()
     {
