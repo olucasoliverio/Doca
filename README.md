@@ -2,6 +2,8 @@
 
 Dock e barra de menu estilo macOS para Windows 11, em .NET 10 / WPF.
 
+![Doca rodando no Windows 11: Dock, barra de menu e Spotlight](assets/doca.jpg)
+
 ## Instalar / atualizar
 
 ```powershell
