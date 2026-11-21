@@ -23,7 +23,7 @@ internal sealed record StatusActivity(string Glyph, string Title, string State, 
 internal static class IslandGlyphs
 {
     public const string Brightness = "", Mute = "", Headphones = "", Music = "", Pause = "",
-        Calendar = "", Controls = "", Tray = "", More = "";
+        Calendar = "", Controls = "", Tray = "", More = "", Search = "";
     public static string Volume(double level, bool muted) =>
         muted || level < 0.01 ? Mute : level < 0.34 ? "" : level < 0.67 ? "" : "";
 }
@@ -197,10 +197,18 @@ internal sealed class IslandWindow : Window
     private bool trackHud, hovering;
     private int menusOpen;
     private string? lastTrack;
-    private readonly DispatcherTimer hudTimer = new(), hoverTimer = new() { Interval = TimeSpan.FromMilliseconds(200) },
-        leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(350) }, clockTimer = new();
+    /// <summary>Pointer over the island (the resting pill grows a little: it is clickable).</summary>
+    private bool pointerIn;
+    private IDisposable? outsideClicks;
+    private AppBar? appBar;
+    private readonly DispatcherTimer hudTimer = new(), hoverTimer = new() { Interval = TimeSpan.FromMilliseconds(280) },
+        leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) }, clockTimer = new();
 
-    private double Collapsed => standalone ? Math.Max(26, cfg.MenuBarHeight + 2) : Math.Max(16, cfg.MenuBarHeight - 6);
+    // Standalone: capped so a tall bar setting doesn't make a chunky pill (iPhone's is slim).
+    private double Collapsed => standalone ? Math.Clamp(cfg.MenuBarHeight - 2, 22, 30) : Math.Max(16, cfg.MenuBarHeight - 6);
+
+    /// <summary>Height of the strip kept free at the top (standalone, IslandReserveTop).</summary>
+    private double Strip => Collapsed + 2 * inset;
 
     /// <param name="bar">The menu bar this island sits on, or null for the standalone island.</param>
     public IslandWindow(DocaConfig cfg, IntPtr monitor, WindowTracker tracker, Window? bar = null)
@@ -210,7 +218,7 @@ internal sealed class IslandWindow : Window
         this.tracker = tracker;
         this.monitor = monitor;
         standalone = bar == null;
-        inset = standalone ? 7 : 3;
+        inset = 3;
         rest = new RestView(standalone);
         Title = "Doca Island";
         WindowStyle = WindowStyle.None;
@@ -246,6 +254,12 @@ internal sealed class IslandWindow : Window
             Glass.MakeOverlay(this);
             hwnd = new WindowInteropHelper(this).Handle;
             SetRegion(0, 0);
+            if (standalone && cfg.IslandReserveTop)
+            {
+                // Maximized windows start below the island: browser tabs in the middle stay clickable.
+                appBar = new AppBar(this, Native.ABE_TOP);
+                appBar.ExplorerRestarted += Taskbar.EnsureHidden;
+            }
             Place();
         };
 
@@ -258,10 +272,31 @@ internal sealed class IslandWindow : Window
             leaveTimer.Stop();
             Collapse();
         };
-        MouseEnter += (_, _) => { leaveTimer.Stop(); if (!hovering && CanExpand) hoverTimer.Start(); };
-        MouseLeave += (_, _) => { hoverTimer.Stop(); if (hovering) leaveTimer.Start(); };
+        MouseEnter += (_, _) =>
+        {
+            pointerIn = true;
+            leaveTimer.Stop();
+            if (hovering) return;
+            if (cfg.IslandOpenOnHover && CanExpand) hoverTimer.Start();
+            Refresh(); // grow a little: "this is clickable"
+        };
+        MouseLeave += (_, _) =>
+        {
+            pointerIn = false;
+            hoverTimer.Stop();
+            if (hovering) leaveTimer.Start();
+            else Refresh();
+        };
         // A click on the small pill opens it right away.
         MouseLeftButtonUp += (_, _) => { if (!hovering && CanExpand) { hoverTimer.Stop(); Expand(); } };
+        // Closed pill: the wheel sets the volume (the level appears in the pill), the middle button plays/pauses.
+        MouseWheel += (_, e) =>
+        {
+            if (hovering) return;
+            e.Handled = true;
+            Audio.Nudge(e.Delta > 0 ? 0.02f : -0.02f);
+        };
+        MouseUp += (_, e) => { if (e.ChangedButton == MouseButton.Middle && !hovering && NowPlaying.HasSession) NowPlaying.PlayPause(); };
         if (standalone)
         {
             // No bar, so no ⊞ menu: right-click the island for it.
@@ -283,6 +318,8 @@ internal sealed class IslandWindow : Window
             leaveTimer.Stop();
             clockTimer.Stop();
             if (animating) CompositionTarget.Rendering -= OnFrame;
+            outsideClicks?.Dispose();
+            appBar?.Release();
             host.Children.Clear(); // releases a panel's borrowed content
         };
         lastTrack = NowPlaying.HasSession ? NowPlaying.Title : null;
@@ -290,6 +327,8 @@ internal sealed class IslandWindow : Window
     }
 
     private bool CanExpand => standalone || NowPlaying.HasSession;
+
+    public void ReleaseAppBar() => appBar?.Release();
 
     /// <summary>"Doca.exe --island": open the panel, then the next tab on each call, then close.</summary>
     public void StepPanel()
@@ -314,6 +353,7 @@ internal sealed class IslandWindow : Window
             y = r.Top;
         }
         Glass.Place(this, x, y, width, height);
+        appBar?.Reserve(m.Bounds, (int)Math.Round(Strip * scale));
         SetRegion(pill.Visibility == Visibility.Visible ? Math.Max(w, tw) : 0, Math.Max(h, th));
     }
 
@@ -328,6 +368,9 @@ internal sealed class IslandWindow : Window
     {
         var now = DateTime.Now;
         rest.Clock = cfg.ClockShowSeconds ? now.ToString("HH:mm:ss") : now.ToString("HH:mm");
+        // The pill only has room for the time; the full date is a hover away.
+        string date = now.ToString("D", CultureInfo.CurrentCulture);
+        rest.ToolTip = char.ToUpper(date[0]) + date[1..];
         clockTimer.Interval = cfg.ClockShowSeconds
             ? TimeSpan.FromMilliseconds(1000 - now.Millisecond + 10)
             : TimeSpan.FromMilliseconds(60_000 - now.Second * 1000 - now.Millisecond + 30);
@@ -350,6 +393,9 @@ internal sealed class IslandWindow : Window
 
     private void Expand()
     {
+        // Open until the pointer leaves or a click lands outside Doca (also when opened by a click or --island,
+        // where the pointer may never come in).
+        outsideClicks ??= Ui.OnOutsideClick(() => { leaveTimer.Stop(); Collapse(); });
         hovering = true;
         hud = null;
         trackHud = false;
@@ -359,6 +405,8 @@ internal sealed class IslandWindow : Window
 
     private void Collapse()
     {
+        outsideClicks?.Dispose();
+        outsideClicks = null;
         if (!hovering) return;
         hovering = false;
         Refresh();
@@ -399,11 +447,13 @@ internal sealed class IslandWindow : Window
     {
         bool hasMusic = cfg.ShowNowPlaying && NowPlaying.HasSession;
         if (!hovering && dashboard != null) dashboard = null; // dropped from the tree below → borrowed content released
+        // Hand cursor on the closed pill: it opens on click.
+        Cursor = !hovering && CanExpand ? Cursors.Hand : null;
 
         if (hovering && standalone)
         {
             dashboard ??= new Dashboard(cfg, pill, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu);
-            Show(dashboard, 416, null);
+            Show(dashboard, 432, null);
         }
         else if (hovering && NowPlaying.HasSession)
         {
@@ -426,6 +476,8 @@ internal sealed class IslandWindow : Window
         {
             rest.Update(cfg.ShowNowPlaying);
             double width = !standalone ? 168 : hasMusic ? 232 : cfg.ClockShowSeconds ? 118 : 100;
+            // Pointer on it (and it opens on click): a small stretch, like a button lifting.
+            if (pointerIn && CanExpand) width += 14;
             Show(rest, width, Collapsed);
         }
         else Show(null, 0, 0);
@@ -753,7 +805,7 @@ internal sealed class IslandWindow : Window
                 var content = new StackPanel { Orientation = Orientation.Horizontal };
                 content.Children.Add(Glyph(tabs[i].glyph, 12));
                 content.Children.Add(new TextBlock { Text = tabs[i].name, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-                var chip = new Border { Child = content, Padding = new Thickness(9, 5, 10, 6), CornerRadius = new CornerRadius(13), Margin = new Thickness(0, 0, 3, 0), Cursor = Cursors.Hand };
+                var chip = new Border { Child = content, Padding = new Thickness(8, 5, 9, 6), CornerRadius = new CornerRadius(13), Margin = new Thickness(0, 0, 2, 0), Cursor = Cursors.Hand };
                 BarFx.Prepare(chip);
                 chip.MouseEnter += (_, _) => { if (index != n) BarFx.Hot(chip, true); };
                 chip.MouseLeave += (_, _) => { if (index != n) BarFx.Hot(chip, false); };
@@ -762,12 +814,11 @@ internal sealed class IslandWindow : Window
                 row.Children.Add(chip);
             }
             header.Children.Add(row);
-            var more = new Border { Child = Glyph(IslandGlyphs.More, 13), Width = 28, Height = 26, CornerRadius = new CornerRadius(13), HorizontalAlignment = HorizontalAlignment.Right, Cursor = Cursors.Hand, ToolTip = "Menu do sistema" };
-            BarFx.Prepare(more);
-            more.MouseEnter += (_, _) => BarFx.Hot(more, true);
-            more.MouseLeave += (_, _) => BarFx.Hot(more, false);
-            more.MouseLeftButtonUp += (_, e) => { e.Handled = true; systemMenu(); };
-            header.Children.Add(more);
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            // Spotlight lost its bar button in this mode; it lives here (and on Alt+Espaço).
+            buttons.Children.Add(RoundButton(IslandGlyphs.Search, "Spotlight (Alt+Espaço)", () => { dismiss(); SpotlightWindow.Toggle(cfg); }));
+            buttons.Children.Add(RoundButton(IslandGlyphs.More, "Menu do sistema", systemMenu));
+            header.Children.Add(buttons);
             Children.Add(header);
             Children.Add(body);
 
@@ -779,7 +830,18 @@ internal sealed class IslandWindow : Window
                 Select((index + (e.Delta < 0 ? 1 : tabs.Length - 1)) % tabs.Length);
             };
             Unloaded += (_, _) => Release();
-            Loaded += (_, _) => { if (index < 0) Select(lastTab >= 0 ? lastTab : NowPlaying.HasSession ? 0 : 1); };
+            // Last tab used, except Música with nothing playing: the calendar says more than "Nada tocando".
+            Loaded += (_, _) => { if (index < 0) Select(lastTab >= 0 && !(lastTab == 0 && !NowPlaying.HasSession) ? lastTab : NowPlaying.HasSession ? 0 : 1); };
+        }
+
+        private static Border RoundButton(string glyph, string tip, Action click)
+        {
+            var b = new Border { Child = Glyph(glyph, 12.5), Width = 28, Height = 26, CornerRadius = new CornerRadius(13), Cursor = Cursors.Hand, ToolTip = tip };
+            BarFx.Prepare(b);
+            b.MouseEnter += (_, _) => BarFx.Hot(b, true);
+            b.MouseLeave += (_, _) => BarFx.Hot(b, false);
+            b.MouseLeftButtonUp += (_, e) => { e.Handled = true; click(); };
+            return b;
         }
 
         /// <summary>Next tab; false when already on the last one.</summary>
@@ -862,6 +924,9 @@ internal sealed class IslandWindow : Window
                     TrayIconsPanel.StepAside(b);
                     icon.IconMouseDown(e.ChangedButton, TrayIconsPanel.AnchorBelow(b), TrayIconsPanel.DoubleClick());
                     icon.IconMouseUp(e.ChangedButton, TrayIconsPanel.AnchorBelow(b), TrayIconsPanel.DoubleClick());
+                    // A left click opens the app: get out of its way. A right click shows the app's menu: the
+                    // panel closes when that menu is used (outside click).
+                    if (e.ChangedButton == MouseButton.Left) Dispatcher.BeginInvoke(dismiss, DispatcherPriority.Background);
                 };
                 grid.Children.Add(b);
             }

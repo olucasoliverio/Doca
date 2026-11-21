@@ -45,32 +45,47 @@ internal static class Ui
     /// </summary>
     public static void CloseOnOutsideClick(ContextMenu m)
     {
-        IntPtr hook = IntPtr.Zero;
-        LowLevelMouseProc? proc = null; // must stay referenced while installed, or the GC frees the thunk
+        IDisposable? watch = null;
+        m.Opened += (_, _) => watch ??= OnOutsideClick(() => m.IsOpen = false);
+        m.Closed += (_, _) => { watch?.Dispose(); watch = null; };
+    }
+
+    /// <summary>
+    /// Calls outside (on the UI thread) when a mouse button goes down on anything that is not a Doca window.
+    /// Clicks on Doca (menus, panels, the bar) are left to WPF. Dispose to remove the hook.
+    /// </summary>
+    public static IDisposable OnOutsideClick(Action outside)
+    {
+        var dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
         uint ownPid = (uint)Environment.ProcessId;
-        m.Opened += (_, _) =>
+        LowLevelMouseProc proc = (code, msg, info) =>
         {
-            if (hook != IntPtr.Zero) return;
-            proc = (code, msg, info) =>
+            int wm = msg.ToInt32();
+            if (code >= 0 && (wm == WM_LBUTTONDOWN || wm == WM_RBUTTONDOWN || wm == WM_MBUTTONDOWN))
             {
-                int wm = msg.ToInt32();
-                if (code >= 0 && (wm == WM_LBUTTONDOWN || wm == WM_RBUTTONDOWN || wm == WM_MBUTTONDOWN))
-                {
-                    // MSLLHOOKSTRUCT starts with the cursor position.
-                    Native.GetWindowThreadProcessId(WindowFromPoint(Marshal.PtrToStructure<Native.POINT>(info)), out uint pid);
-                    // Clicks on Doca (the menu itself, the bar) are left to WPF as before.
-                    if (pid != ownPid) m.Dispatcher.BeginInvoke(() => m.IsOpen = false);
-                }
-                return CallNextHookEx(IntPtr.Zero, code, msg, info);
-            };
-            hook = SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(null), 0);
+                // MSLLHOOKSTRUCT starts with the cursor position.
+                Native.GetWindowThreadProcessId(WindowFromPoint(Marshal.PtrToStructure<Native.POINT>(info)), out uint pid);
+                if (pid != ownPid) dispatcher.BeginInvoke(outside);
+            }
+            return CallNextHookEx(IntPtr.Zero, code, msg, info);
         };
-        m.Closed += (_, _) =>
+        return new MouseHook(SetWindowsHookEx(WH_MOUSE_LL, proc, GetModuleHandle(null), 0), proc);
+    }
+
+    /// <summary>Keeps the delegate alive while installed (or the GC frees the thunk under the hook).</summary>
+    private sealed class MouseHook : IDisposable
+    {
+        private IntPtr hook;
+        private LowLevelMouseProc? proc;
+
+        public MouseHook(IntPtr hook, LowLevelMouseProc proc) { this.hook = hook; this.proc = proc; }
+
+        public void Dispose()
         {
             if (hook != IntPtr.Zero) UnhookWindowsHookEx(hook);
             hook = IntPtr.Zero;
             proc = null;
-        };
+        }
     }
 }
 

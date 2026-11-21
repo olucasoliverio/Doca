@@ -50,7 +50,7 @@ internal sealed class SettingsWindow : Window
         {
             ("", "Geral", General),
             ("", "Dock", DockPage),
-            ("", "Barra de menu", MenuBarPage),
+            ("", "Topo da tela", MenuBarPage),
             ("", "Apps fixados", PinnedPage),
             ("", "Sobre", AboutPage),
         };
@@ -130,11 +130,41 @@ internal sealed class SettingsWindow : Window
             }, v => $"{v:0} px"),
             SliderRow("Opacidade do fundo", 0.2, 1, () => cfg.DockOpacity, v => { cfg.DockOpacity = v; Changed(Apply.Dock); }, v => $"{v * 100:0}%")));
 
-    private UIElement MenuBarPage() => Stack(
+    private UIElement MenuBarPage() => cfg.IslandOnly && cfg.DynamicIsland ? IslandPage() : BarPage();
+
+    /// <summary>Island or full bar; switching rebuilds this page (each mode has its own settings).</summary>
+    private Border ModeCard() => Card(
+        Row("O que fica no topo", "Só a ilha: uma pílula com o relógio que abre um painel com música, calendário, controles e bandeja. Barra completa: menus do app, ícones e relógio de ponta a ponta.",
+            Choice(new[] { "Só a ilha", "Barra completa" }, () => cfg.IslandOnly && cfg.DynamicIsland ? "Só a ilha" : "Barra completa",
+                v =>
+                {
+                    cfg.IslandOnly = v == "Só a ilha";
+                    if (cfg.IslandOnly) cfg.DynamicIsland = true;
+                    Changed(Apply.Screens);
+                    Dispatcher.BeginInvoke(() => { int i = nav.SelectedIndex; nav.SelectedIndex = -1; nav.SelectedIndex = i; });
+                })));
+
+    private UIElement IslandPage() => Stack(
+        ModeCard(),
         Card(
-            Row("Topo da tela", "Só a ilha: sem barra, a ilha mostra o relógio e abre um painel com música, calendário, controles e bandeja. Botão direito nela: menu do sistema.",
-                Choice(new[] { "Só a ilha", "Barra completa" }, () => cfg.IslandOnly ? "Só a ilha" : "Barra completa",
-                    v => { cfg.IslandOnly = v == "Só a ilha"; if (cfg.IslandOnly) cfg.DynamicIsland = true; Changed(Apply.Screens); }))),
+            Toggle("Abrir ao passar o mouse", "Desligado: clique na ilha para abrir o painel (ela não abre sem querer quando você vai até as abas do navegador). Ligado: basta parar o ponteiro sobre ela.",
+                () => cfg.IslandOpenOnHover, v => { cfg.IslandOpenOnHover = v; Changed(Apply.Screens); }),
+            Toggle("Reservar espaço no topo", "Janelas maximizadas começam logo abaixo da ilha, então nada fica escondido embaixo dela. Desligado: as janelas usam a tela inteira e a ilha fica por cima.",
+                () => cfg.IslandReserveTop, v => { cfg.IslandReserveTop = v; Changed(Apply.Screens); }),
+            Toggle("Mostrar em todas as telas", "Uma ilha em cada monitor. Desligado: só na tela principal.",
+                () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); })),
+        Card(
+            Toggle("Música tocando", "Capa e equalizador na ilha enquanto algo toca (Spotify, YouTube…), e o aviso de nova faixa.",
+                () => cfg.ShowNowPlaying, v => { cfg.ShowNowPlaying = v; Changed(Apply.Screens); }),
+            Toggle("Mostrar os segundos", "No relógio da ilha. A data completa aparece ao parar o ponteiro sobre ela.",
+                () => cfg.ClockShowSeconds, v => { cfg.ClockShowSeconds = v; Changed(Apply.Screens); }),
+            Toggle("Ícones da bandeja monocromáticos", "Na aba Bandeja do painel. Avisos em vermelho (mensagens não lidas) continuam coloridos.",
+                () => cfg.TrayIconsMonochrome, v => { cfg.TrayIconsMonochrome = v; Changed(Apply.Screens); })),
+        Card(
+            Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Botão direito na ilha (ou ⋯ no painel): menu do sistema, com Preferências, Desligar e Sair do Doca. A ilha também cresce por um instante com volume, brilho, nova música, fones Bluetooth e Caps Lock.")));
+
+    private UIElement BarPage() => Stack(
+        ModeCard(),
         Card(
             Toggle("Mostrar em todas as telas", "Uma barra em cada monitor. Desligado: só na tela principal.",
                 () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); }),

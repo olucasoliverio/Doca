@@ -65,6 +65,11 @@ internal sealed class DocaConfig
     public bool DynamicIsland { get; set; } = true;
     /// <summary>No menu bar at all: only the island at the top (clock at rest, tabbed panel on hover).</summary>
     public bool IslandOnly { get; set; } = true;
+    /// <summary>Open the island's panel by resting the pointer on it; off: click (the default, so reaching for
+    /// browser tabs at the top doesn't pop it open).</summary>
+    public bool IslandOpenOnHover { get; set; } = false;
+    /// <summary>Standalone island: keep the top strip free so maximized windows (browser tabs) never sit under it.</summary>
+    public bool IslandReserveTop { get; set; } = true;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;

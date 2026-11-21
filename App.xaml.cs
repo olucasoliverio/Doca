@@ -227,6 +227,7 @@ public partial class App : Application
         {
             foreach (var d in docks) d.ReleaseAppBar();
             foreach (var b in bars) b.ReleaseAppBar();
+            foreach (var i in islands) i.ReleaseAppBar();
             tracker?.Dispose();
             WindowCycler.Stop();
             SpotlightHotkey.Stop();
