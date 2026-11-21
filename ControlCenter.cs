@@ -202,7 +202,7 @@ internal sealed class ControlCenterFlyout : Flyout
     private (Border tile, Border circle, TextBlock detail) wifi, bluetooth, dark;
     private bool updatingVolume;
 
-    public ControlCenterFlyout(DocaConfig cfg) : base(cfg, 340)
+    public ControlCenterFlyout(DocaConfig cfg, bool embedded = false) : base(cfg, 340)
     {
         this.cfg = cfg;
         var tiles = new UniformGrid { Columns = 2 };
@@ -231,7 +231,7 @@ internal sealed class ControlCenterFlyout : Flyout
         Body.Children.Add(Section("Som", sound));
         volume.ValueChanged += (_, e) => { if (!updatingVolume) { Audio.SetLevel((float)(e.NewValue / 100)); UpdateVolumeGlyph(); } };
 
-        if (NowPlaying.HasSession) Body.Children.Add(Section(null, new PlayerView(compact: true)));
+        if (NowPlaying.HasSession && !embedded) Body.Children.Add(Section(null, new PlayerView(compact: true)));
 
         Body.Children.Add(Divider());
         Body.Children.Add(Footer(Link("Configurações…", () => Shell.Open("ms-settings:"))));
@@ -239,16 +239,19 @@ internal sealed class ControlCenterFlyout : Flyout
         RefreshVolume();
         dark.circle.Background = Theme.Dark ? Accent : circleOff;
         dark.detail.Text = Theme.Dark ? "Ativado" : "Desativado";
-        Loaded += async (_, _) =>
+        // Body, not window, events: the island hosts this content without ever showing the window.
+        Body.Loaded += async (_, _) =>
         {
             await Bluetooth.LoadRadiosAsync();
             RefreshRadios();
             var found = await Task.Run(DdcMonitor.Open);
-            if (!IsVisible) { foreach (var m in found) m.Dispose(); return; }
+            if (!Body.IsLoaded) { foreach (var m in found) m.Dispose(); return; }
             monitors.AddRange(found);
             FillDisplays();
         };
-        Closed += (_, _) => { foreach (var m in monitors) m.Dispose(); };
+        void Release() { foreach (var m in monitors) m.Dispose(); monitors.Clear(); }
+        Body.Unloaded += (_, _) => Release();
+        Closed += (_, _) => Release();
     }
 
     private Border Section(string? title, UIElement content)

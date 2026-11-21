@@ -77,10 +77,13 @@ internal static class TemplateIcon
 
         // Brightness range of the visible pixels decides how much inner detail there is to keep.
         double min = 1, max = 0, sum = 0, weight = 0;
+        int visible = 0, red = 0;
         for (int i = 0; i < px.Length; i += 4)
         {
             double a = px[i + 3] / 255.0;
             if (a < 0.2) continue;
+            visible++;
+            if (IsAlertRed(px, i)) red++;
             double l = Luma(px, i);
             min = Math.Min(min, l);
             max = Math.Max(max, l);
@@ -90,13 +93,15 @@ internal static class TemplateIcon
         if (weight == 0) return null;
         bool flat = max - min < 0.15;            // one color (already a glyph): plain silhouette
         bool darkIcon = sum / weight < 0.3;      // black glyph made for a light taskbar: bright = background
+        // A red dot is a small part of the icon; a red logo (AMD…) is most of it and goes white like the rest.
+        bool keepRed = red > 0 && red < visible * 0.3;
 
         for (int i = 0; i < px.Length; i += 4)
         {
             byte b = px[i], g = px[i + 1], r = px[i + 2], a = px[i + 3];
             if (a == 0) continue;
             // Unread/alert dots (Discord, Teams…) stay red: that is the information.
-            if (r > 180 && g < 100 && b < 100) continue;
+            if (keepRed && IsAlertRed(px, i)) continue;
             double t = flat ? 1 : (Luma(px, i) - min) / (max - min);
             if (darkIcon && !flat) t = 1 - t;
             double alpha = a * (flat ? 1 : 0.35 + 0.65 * t);
@@ -108,6 +113,8 @@ internal static class TemplateIcon
         outBmp.Freeze();
         return outBmp;
     }
+
+    private static bool IsAlertRed(byte[] px, int i) => px[i + 2] > 180 && px[i + 1] < 100 && px[i] < 100;
 
     private static double Luma(byte[] px, int i) => (0.0722 * px[i] + 0.7152 * px[i + 1] + 0.2126 * px[i + 2]) / 255.0;
 }

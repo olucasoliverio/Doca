@@ -132,6 +132,10 @@ internal sealed class SettingsWindow : Window
 
     private UIElement MenuBarPage() => Stack(
         Card(
+            Row("Topo da tela", "Só a ilha: sem barra, a ilha mostra o relógio e abre um painel com música, calendário, controles e bandeja. Botão direito nela: menu do sistema.",
+                Choice(new[] { "Só a ilha", "Barra completa" }, () => cfg.IslandOnly ? "Só a ilha" : "Barra completa",
+                    v => { cfg.IslandOnly = v == "Só a ilha"; if (cfg.IslandOnly) cfg.DynamicIsland = true; Changed(Apply.Screens); }))),
+        Card(
             Toggle("Mostrar em todas as telas", "Uma barra em cada monitor. Desligado: só na tela principal.",
                 () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); }),
             SliderRow("Altura", 22, 40, () => cfg.MenuBarHeight, v => { cfg.MenuBarHeight = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),

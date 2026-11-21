@@ -245,7 +245,7 @@ internal sealed class MenuBarWindow : Window
             {
                 if (island != null) return;
                 Island.Start();
-                island = new IslandWindow(cfg, this, monitor) { Owner = this };
+                island = new IslandWindow(cfg, monitor, tracker, this) { Owner = this };
                 island.Show();
             };
             // Hidden with the bar (fullscreen apps), back with it (also over fullscreen when revealed).
@@ -430,8 +430,13 @@ internal sealed class MenuBarWindow : Window
 
     #region Menus
 
-    private void ShowSystemMenu(Border b)
+    private void ShowSystemMenu(Border b) => Open(b, SystemMenu(cfg));
+
+    /// <summary>The ⊞ menu (also the island's right-click menu when there is no bar).</summary>
+    public static ContextMenu SystemMenu(DocaConfig cfg)
     {
+        void Confirm(DocaDialog.Kind kind, string title, string message, string actionText, Action action) =>
+            DocaDialog.Confirm(kind, title, message, actionText, action, cfg.Font);
         var m = new ContextMenu();
         m.Items.Add(Ui.Item("Sobre este PC", () => Shell.Open("ms-settings:about")));
         m.Items.Add(new Separator());
@@ -456,7 +461,7 @@ internal sealed class MenuBarWindow : Window
         m.Items.Add(Ui.Item("Iniciar com o Windows", Startup.Toggle, Startup.Enabled));
         m.Items.Add(Ui.Item("Reiniciar o Doca", App.Restart));
         m.Items.Add(Ui.Item("Sair do Doca", () => Application.Current.Shutdown()));
-        Open(b, m);
+        return m;
     }
 
     private void ShowAppMenu(Border b)
@@ -486,9 +491,6 @@ internal sealed class MenuBarWindow : Window
         m.Items.Add(Ui.Item("Forçar Encerramento", () => Shell.ForceQuit(app!.ExePath, Windows(app.Key), name), enabled: app != null));
         Open(b, m);
     }
-
-    private void Confirm(DocaDialog.Kind kind, string title, string message, string actionText, Action action) =>
-        DocaDialog.Confirm(kind, title, message, actionText, action, cfg.Font);
 
     #endregion
 

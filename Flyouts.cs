@@ -34,6 +34,22 @@ internal abstract class Flyout : Window
     private string key = "";
     protected readonly StackPanel Body = new();
 
+    /// <summary>Raised when the panel asks to close (a link was used); the island collapses on it.</summary>
+    public event Action? Dismissed;
+
+    /// <summary>
+    /// Hands the panel's content to another host (the island's tabs) instead of showing this window.
+    /// anchor is where panels opened from inside it (Wi-Fi, Bluetooth…) hang from. The caller closes
+    /// this window when it is done with the content. Lifecycle hooks of the content use Body.Loaded/Unloaded,
+    /// so they work in both places.
+    /// </summary>
+    public FrameworkElement Detach(FrameworkElement anchor)
+    {
+        this.anchor = anchor;
+        ((Border)Content).Child = null;
+        return Body;
+    }
+
     public static void Toggle(string key, FrameworkElement anchor, Func<Flyout> create)
     {
         var previous = current;
@@ -112,6 +128,7 @@ internal abstract class Flyout : Window
 
     protected void CloseFlyout()
     {
+        Dismissed?.Invoke();
         if (closing) return;
         closing = true;
         lastKey = key;
@@ -207,7 +224,8 @@ internal sealed class CalendarFlyout : Flyout
             Link("Data e hora…", () => Shell.Open("ms-settings:dateandtime"))));
 
         tick.Tick += (_, _) => UpdateTime();
-        tick.Start();
+        Body.Loaded += (_, _) => tick.Start();
+        Body.Unloaded += (_, _) => tick.Stop();
         Closed += (_, _) => tick.Stop();
         UpdateTime();
         Fill();

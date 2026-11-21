@@ -12,6 +12,7 @@ public partial class App : Application
     private DocaConfig? cfg;
     private WindowTracker? tracker;
     private readonly List<MenuBarWindow> bars = new();
+    private readonly List<IslandWindow> islands = new();
     private readonly List<DockWindow> docks = new();
     private readonly List<CornerWindow> corners = new();
     private bool cleaned;
@@ -32,6 +33,9 @@ public partial class App : Application
         // "Doca.exe --spotlight" opens Spotlight in the running instance (e.g. from another launcher or shortcut).
         var spotlight = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Spotlight");
         if (e.Args.Contains("--spotlight")) { spotlight.Set(); Shutdown(); return; }
+        // "Doca.exe --island" opens the island's panel on the main screen; again: next tab; after the last: closes.
+        var islandCmd = new EventWaitHandle(false, EventResetMode.AutoReset, "Doca.Island");
+        if (e.Args.Contains("--island")) { islandCmd.Set(); Shutdown(); return; }
 
         mutex = new Mutex(true, "Doca.SingleInstance", out bool created);
         if (!created && e.Args.Contains("--restart"))
@@ -52,6 +56,7 @@ public partial class App : Application
         new Thread(() => { while (settings.WaitOne()) Dispatcher.BeginInvoke(ShowSettings); }) { IsBackground = true }.Start();
         new Thread(() => { while (diag.WaitOne()) Dispatcher.BeginInvoke(WriteDiagnostics); }) { IsBackground = true }.Start();
         new Thread(() => { while (spotlight.WaitOne()) Dispatcher.BeginInvoke(() => SpotlightWindow.Toggle(cfg!)); }) { IsBackground = true }.Start();
+        new Thread(() => { while (islandCmd.WaitOne()) Dispatcher.BeginInvoke(() => islands.FirstOrDefault()?.StepPanel()); }) { IsBackground = true }.Start();
 
         // --preview: try Doca without touching the taskbar or other docks.
         bool preview = e.Args.Contains("--preview");
@@ -111,6 +116,8 @@ public partial class App : Application
     {
         screensLayout = MonitorLayout();
         foreach (var b in bars) b.Close();
+        foreach (var i in islands) i.Close();
+        islands.Clear();
         foreach (var d in docks) d.Close();
         foreach (var c in corners) c.Close();
         bars.Clear();
@@ -124,7 +131,15 @@ public partial class App : Application
         {
             bool fs = tracker.IsFullscreen(m.Handle);
             if (cfg!.ScreenCorners) corners.AddRange(CornerWindow.CreateFor(m, cfg.ScreenCornerRadius));
-            if (cfg!.MenuBarAllScreens || m.Primary)
+            if ((cfg!.MenuBarAllScreens || m.Primary) && cfg.IslandOnly && cfg.DynamicIsland)
+            {
+                // No bar: the island stands alone at the top (no reserved strip, windows keep the full height).
+                Island.Start();
+                var i = new IslandWindow(cfg, m.Handle, tracker!);
+                if (!fs) i.Show();
+                islands.Add(i);
+            }
+            else if (cfg!.MenuBarAllScreens || m.Primary)
             {
                 var b = new MenuBarWindow(cfg, tracker!, m.Handle);
                 if (!fs) b.Show();
