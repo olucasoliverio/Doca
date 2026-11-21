@@ -69,7 +69,7 @@ internal sealed class DocaConfig
     /// browser tabs at the top doesn't pop it open).</summary>
     public bool IslandOpenOnHover { get; set; } = false;
     /// <summary>Standalone island: keep the top strip free so maximized windows (browser tabs) never sit under it.</summary>
-    public bool IslandReserveTop { get; set; } = true;
+    public bool IslandReserveTop { get; set; } = false;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;
