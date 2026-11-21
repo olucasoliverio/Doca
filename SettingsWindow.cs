@@ -161,7 +161,9 @@ internal sealed class SettingsWindow : Window
             Toggle("Som na barra", "Role sobre o ícone para mudar o volume; botão direito silencia. Também fica na Central de Controle.",
                 () => cfg.ShowVolume, v => { cfg.ShowVolume = v; Changed(Apply.Screens); })),
         Card(
-            Toggle("Música tocando", "Mostra na barra o que está tocando (Spotify, YouTube…). Clique para os controles.",
+            Toggle("Ilha dinâmica", "Pílula no centro da barra, como no iPhone: mostra a música e aparece por um instante ao mudar volume ou brilho e ao conectar fones Bluetooth. Passe o mouse para os controles.",
+                () => cfg.DynamicIsland, v => { cfg.DynamicIsland = v; Changed(Apply.Screens); }),
+            Toggle("Música tocando", "Mostra o que está tocando (Spotify, YouTube…): na ilha ou, sem ela, à direita da barra.",
                 () => cfg.ShowNowPlaying, v => { cfg.ShowNowPlaying = v; Changed(Apply.Screens); })),
         Card(
             Toggle("Mostrar a data no relógio", "Ex.: Qui 29 Out 21:35",

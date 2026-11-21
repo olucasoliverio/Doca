@@ -12,6 +12,9 @@ internal static class Audio
     {
         [PreserveSig] int EnumAudioEndpoints(int flow, int mask, out IMMDeviceCollection devices);
         [PreserveSig] int GetDefaultAudioEndpoint(int flow, int role, out IMMDevice device);
+        [PreserveSig] int GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice device);
+        [PreserveSig] int RegisterEndpointNotificationCallback(IntPtr client);
+        [PreserveSig] int UnregisterEndpointNotificationCallback(IntPtr client);
     }
 
     [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
@@ -168,6 +171,69 @@ internal static class Audio
         if (delta > 0) ep.SetMute(false, ref ctx);
     }
 
+    #region Change notifications (the island's volume HUD)
+
+    /// <summary>Volume or mute changed (keyboard keys, mixer, any app). Raised on the UI thread.</summary>
+    public static event Action<float, bool>? VolumeChanged;
+
+    // Own endpoint, separate from the cached one above (that one is released every few calls).
+    private static IAudioEndpointVolume? watched;
+    private static IntPtr volumeCallback, deviceCallback;
+    private static IMMDeviceEnumerator? watchEnumerator;
+
+    /// <summary>
+    /// Core Audio pushes every volume change to IAudioEndpointVolumeCallback, so the HUD reacts at once
+    /// without polling. IMMNotificationClient moves the subscription when the default output changes.
+    /// </summary>
+    public static void StartWatching()
+    {
+        if (watchEnumerator != null) return;
+        try
+        {
+            watchEnumerator = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            // Kept for the app's lifetime: the native side holds these pointers.
+            volumeCallback = Marshal.GetComInterfaceForObject(new VolumeCallback(), typeof(IAudioEndpointVolumeCallback));
+            deviceCallback = Marshal.GetComInterfaceForObject(new DeviceCallback(), typeof(IMMNotificationClient));
+            watchEnumerator.RegisterEndpointNotificationCallback(deviceCallback);
+            WatchDefault();
+        }
+        catch (Exception ex) { App.Log(ex); }
+    }
+
+    private static void WatchDefault()
+    {
+        try
+        {
+            if (watched != null)
+            {
+                watched.UnregisterControlChangeNotify(volumeCallback);
+                Marshal.ReleaseComObject(watched);
+                watched = null;
+            }
+            if (watchEnumerator == null || watchEnumerator.GetDefaultAudioEndpoint(0, 1, out var dev) < 0) return;
+            var iid = typeof(IAudioEndpointVolume).GUID;
+            if (dev.Activate(ref iid, 23, IntPtr.Zero, out object o) < 0) return;
+            watched = (IAudioEndpointVolume)o;
+            watched.RegisterControlChangeNotify(volumeCallback);
+        }
+        catch (Exception ex) { App.Log(ex); }
+    }
+
+    private static void OnUi(Action a) => System.Windows.Application.Current?.Dispatcher.BeginInvoke(a);
+
+    /// <summary>Called by Core Audio on its own thread.</summary>
+    internal static void OnVolumeNotify(IntPtr data)
+    {
+        // AUDIO_VOLUME_NOTIFICATION_DATA: GUID context (16), BOOL muted, float master volume.
+        bool muted = Marshal.ReadInt32(data, 16) != 0;
+        float level = BitConverter.Int32BitsToSingle(Marshal.ReadInt32(data, 20));
+        OnUi(() => VolumeChanged?.Invoke(level, muted));
+    }
+
+    internal static void OnDefaultChanged() => OnUi(() => { age = 99; WatchDefault(); });
+
+    #endregion
+
     public static void ToggleMute()
     {
         var ep = Endpoint();
@@ -175,4 +241,43 @@ internal static class Audio
         var ctx = Guid.Empty;
         ep.SetMute(!m, ref ctx);
     }
+}
+
+[ComImport, Guid("657804FA-D6AD-4496-8A60-352752AF4F89"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IAudioEndpointVolumeCallback
+{
+    [PreserveSig] int OnNotify(IntPtr data);
+}
+
+[ComImport, Guid("7991EEC9-7E89-4D85-8390-6C703CEC60C0"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+public interface IMMNotificationClient
+{
+    [PreserveSig] int OnDeviceStateChanged([MarshalAs(UnmanagedType.LPWStr)] string id, int state);
+    [PreserveSig] int OnDeviceAdded([MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnDeviceRemoved([MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnDefaultDeviceChanged(int flow, int role, [MarshalAs(UnmanagedType.LPWStr)] string id);
+    [PreserveSig] int OnPropertyValueChanged([MarshalAs(UnmanagedType.LPWStr)] string id, PropertyKey key);
+}
+
+[StructLayout(LayoutKind.Sequential)] public struct PropertyKey { public Guid fmtid; public uint pid; }
+
+// Public and COM-visible: Core Audio calls these through COM callable wrappers.
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public sealed class VolumeCallback : IAudioEndpointVolumeCallback
+{
+    public int OnNotify(IntPtr data) { try { Audio.OnVolumeNotify(data); } catch { } return 0; }
+}
+
+[ComVisible(true), ClassInterface(ClassInterfaceType.None)]
+public sealed class DeviceCallback : IMMNotificationClient
+{
+    public int OnDeviceStateChanged(string id, int state) => 0;
+    public int OnDeviceAdded(string id) => 0;
+    public int OnDeviceRemoved(string id) => 0;
+    public int OnDefaultDeviceChanged(int flow, int role, string id)
+    {
+        if (flow == 0 && role == 1) Audio.OnDefaultChanged(); // eRender, eMultimedia
+        return 0;
+    }
+    public int OnPropertyValueChanged(string id, PropertyKey key) => 0;
 }

@@ -105,6 +105,9 @@ internal sealed class MenuBarWindow : Window
     private readonly DispatcherTimer clockTimer = new(), statusTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
     private readonly IntPtr monitor;
     private AppBar? appBar;
+    private IslandWindow? island;
+    /// <summary>Width kept free in the middle of the bar for the island's resting pill (DIP).</summary>
+    private const double IslandReserve = 200;
     private int statusTicks;
     private bool closed;
     private int menusOpen;
@@ -210,7 +213,10 @@ internal sealed class MenuBarWindow : Window
         {
             if (tray == null) return;
             double fixedRight = right.ActualWidth - tray.ActualWidth;
-            tray.Available = Math.Max(0, ActualWidth - left.ActualWidth - left.Margin.Left - fixedRight - right.Margin.Right - 24);
+            double free = ActualWidth - left.ActualWidth - left.Margin.Left - fixedRight - right.Margin.Right - 24;
+            // With the island, tray icons stop short of the middle of the bar.
+            if (cfg.DynamicIsland) free = Math.Min(free, ActualWidth / 2 - IslandReserve / 2 - fixedRight - right.Margin.Right - 8);
+            tray.Available = Math.Max(0, free);
         }
         left.SizeChanged += (_, _) => FitTray();
         right.SizeChanged += (_, _) => FitTray();
@@ -234,6 +240,25 @@ internal sealed class MenuBarWindow : Window
             appBar.ExplorerRestarted += Taskbar.EnsureHidden;
             Reposition();
         };
+
+        if (cfg.DynamicIsland)
+        {
+            // Owned by the bar: always stacked above it. Created once the bar has a window to own it.
+            Loaded += (_, _) =>
+            {
+                if (island != null) return;
+                Island.Start();
+                island = new IslandWindow(cfg, this, monitor) { Owner = this };
+                island.Show();
+            };
+            // Hidden with the bar (fullscreen apps), back with it (also over fullscreen when revealed).
+            IsVisibleChanged += (_, _) =>
+            {
+                if (island == null) return;
+                if (IsVisible) { island.Show(); island.Place(); }
+                else island.Hide();
+            };
+        }
 
         DpiChanged += (_, _) => Dispatcher.BeginInvoke(Reposition);
         tracker.ForegroundChanged += UpdateAppName;
@@ -274,7 +299,7 @@ internal sealed class MenuBarWindow : Window
     /// <summary>Song title while something plays; paused shows dimmed; nothing at all hides the item.</summary>
     private void UpdateNowPlaying()
     {
-        bool show = cfg.ShowNowPlaying && NowPlaying.HasSession;
+        bool show = cfg.ShowNowPlaying && !cfg.DynamicIsland && NowPlaying.HasSession;
         nowPlayingItem.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
         if (!show) { equalizer.Playing = false; return; }
         nowPlayingTitle.Text = NowPlaying.Title;
@@ -299,10 +324,12 @@ internal sealed class MenuBarWindow : Window
             int gap = (int)Math.Round(FloatGap * m.Scale);
             Glass.Place(this, m.Bounds.Left + gap, m.Bounds.Top + gap, m.Bounds.Width - 2 * gap, h);
             appBar?.Reserve(m.Bounds, h + 2 * gap);
+            island?.Place();
             return;
         }
         Glass.Place(this, m.Bounds.Left, m.Bounds.Top, m.Bounds.Width, h);
         appBar?.Reserve(m.Bounds, h);
+        island?.Place();
     }
 
     /// <summary>Bottom edge of the bar in screen pixels (below the floating gap when it floats).</summary>
@@ -356,7 +383,7 @@ internal sealed class MenuBarWindow : Window
 
         int barBottom = BarBottom(b, Native.MonitorInfo(monitor).Scale);
         bool over = onMonitor && p.Y < barBottom + 6;
-        bool busy = menusOpen > 0 || Flyout.IsOpen || Native.FindWindow("#32768", null) != IntPtr.Zero; // #32768: a Win32 menu
+        bool busy = menusOpen > 0 || Flyout.IsOpen || island?.IsMouseOver == true || Native.FindWindow("#32768", null) != IntPtr.Zero; // #32768: a Win32 menu
         revealTicks = over || busy ? 0 : revealTicks + 1;
         if (revealTicks < 5) return;
         revealed = false;

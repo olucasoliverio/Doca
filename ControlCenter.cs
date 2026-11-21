@@ -345,7 +345,11 @@ internal sealed class ControlCenterFlyout : Flyout
         foreach (var m in monitors)
         {
             var slider = new Slider { Minimum = 0, Maximum = 100, Value = m.Level, IsMoveToPointEnabled = true, VerticalAlignment = VerticalAlignment.Center };
-            slider.ValueChanged += (_, e) => m.Set((int)Math.Round(e.NewValue));
+            slider.ValueChanged += (_, e) =>
+            {
+                m.Set((int)Math.Round(e.NewValue));
+                Island.Notify(new LevelActivity(IslandGlyphs.Brightness, e.NewValue / 100, false));
+            };
             var sun = Glyph("", 16);
             if (monitors.Count > 1)
                 displays.Children.Add(new TextBlock { Text = m.Name, FontSize = 11, Opacity = 0.55, Margin = new Thickness(30, displays.Children.Count > 0 ? 6 : 0, 0, 0) });

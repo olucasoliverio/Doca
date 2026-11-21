@@ -61,6 +61,8 @@ internal sealed class DocaConfig
     public bool DockRevealInFullscreen { get; set; } = true;
     public bool ShowTrayIcons { get; set; } = true;
     public bool ShowNowPlaying { get; set; } = true;
+    /// <summary>iPhone-style pill at the top center: music, volume/brightness, Bluetooth devices. Replaces the bar's music item.</summary>
+    public bool DynamicIsland { get; set; } = true;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;
