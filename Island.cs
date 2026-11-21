@@ -204,7 +204,9 @@ internal sealed class IslandWindow : Window
 {
     private const double MaxW = 480, MaxH = 580; // window size (DIP); the notch lives inside it
     /// <summary>Bottom corner radius of the open panel (smaller shapes use half their height: a pill).</summary>
-    private const double Radius = 42;
+    private double Radius => Math.Clamp(cfg.IslandCorner, 12, 56);
+    /// <summary>Resting size: Pequena / Média / Grande.</summary>
+    private double SizeScale => cfg.IslandSize switch { "Pequena" => 0.88, "Grande" => 1.15, _ => 1 };
 
     [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
@@ -212,7 +214,7 @@ internal sealed class IslandWindow : Window
     private readonly DocaConfig cfg;
     private readonly Window? bar;
     private readonly WindowTracker tracker;
-    private readonly IntPtr monitor;
+    private IntPtr monitor;
     private readonly bool standalone;
     private readonly double inset;
     // A notch, not a floating pill: square top glued to the screen edge, flared "shoulders" into the edge and
@@ -242,10 +244,11 @@ internal sealed class IslandWindow : Window
     private IDisposable? outsideClicks;
     private AppBar? appBar;
     private readonly DispatcherTimer hudTimer = new(), hoverTimer = new() { Interval = TimeSpan.FromMilliseconds(280) },
-        leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) }, clockTimer = new();
+        leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) }, clockTimer = new(),
+        followTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
 
     // Standalone: capped so a tall bar setting doesn't make a chunky pill (iPhone's is slim).
-    private double Collapsed => standalone ? Math.Clamp(cfg.MenuBarHeight, 24, 32) : Math.Max(16, cfg.MenuBarHeight - 4);
+    private double Collapsed => standalone ? Math.Round(31 * SizeScale) : Math.Max(16, cfg.MenuBarHeight - 4);
 
     /// <summary>Height of the strip kept free at the top (standalone, IslandReserveTop).</summary>
     private double Strip => Collapsed + inset;
@@ -259,7 +262,8 @@ internal sealed class IslandWindow : Window
         this.monitor = monitor;
         standalone = bar == null;
         inset = 0; // glued to the top edge
-        rest = new RestView(standalone);
+        rest = new RestView(standalone, 14 * SizeScale);
+        pill.Fill = Frozen(new SolidColorBrush(IslandBrushes.Parse(cfg.IslandColor, Colors.Black)));
         Title = "Doca Island";
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -393,6 +397,7 @@ internal sealed class IslandWindow : Window
             hoverTimer.Stop();
             leaveTimer.Stop();
             clockTimer.Stop();
+            followTimer.Stop();
             if (animating) CompositionTarget.Rendering -= OnFrame;
             outsideClicks?.Dispose();
             appBar?.Release();
@@ -414,6 +419,35 @@ internal sealed class IslandWindow : Window
     }
 
     public void ReleaseAppBar() => appBar?.Release();
+
+    /// <summary>
+    /// One island for all screens: it moves to the monitor under the mouse. A cursor check four times a second
+    /// (two cheap calls) instead of a mouse hook; it waits while the island is in use.
+    /// </summary>
+    public void FollowCursor()
+    {
+        followTimer.Tick += (_, _) =>
+        {
+            if (!Native.GetCursorPos(out var pt)) return;
+            var m = Native.MonitorFromPoint(pt, 2 /* MONITOR_DEFAULTTONEAREST */);
+            if (m == monitor || m == IntPtr.Zero || hovering || holds > 0 || menusOpen > 0 || Flyout.IsOpen) return;
+            monitor = m;
+            // Gone from the old screen at once, then drops in on the new one.
+            hud = null;
+            trackHud = false;
+            current = null;
+            host.Children.Clear();
+            if (animating) { CompositionTarget.Rendering -= OnFrame; animating = false; }
+            pill.Visibility = Visibility.Collapsed;
+            w = h = vw = vh = 0;
+            SetRegion(0, 0);
+            Place();
+            if (tracker.IsFullscreen(monitor)) { Hide(); return; }
+            if (!IsVisible) Show();
+            Refresh();
+        };
+        followTimer.Start();
+    }
 
     /// <summary>"Doca.exe --island": open the panel, then the next tab on each call, then close.</summary>
     public void StepPanel()
@@ -575,7 +609,7 @@ internal sealed class IslandWindow : Window
         {
             rest.Update(cfg.ShowNowPlaying);
             // A notch reads as one when it is clearly wider than tall.
-            double width = !standalone ? 168 : hasMusic ? 250 : cfg.ClockShowSeconds ? 160 : 140;
+            double width = !standalone ? 168 : Math.Round((hasMusic ? 250 : cfg.ClockShowSeconds ? 160 : 140) * SizeScale);
             // Badges sit on both sides of the clock: the notch grows evenly so it stays centered.
             width += 2 * rest.BadgeWidth;
             // Pointer on it (and it opens on click): a small stretch, like a button lifting.
@@ -808,8 +842,9 @@ internal sealed class IslandWindow : Window
         private readonly TextBlock timerText = BadgeText(), downloadText = BadgeText();
         private readonly StackPanel timerBadge, downloadBadge;
 
-        public RestView(bool withClock)
+        public RestView(bool withClock, double clockSize)
         {
+            clock.FontSize = clockSize;
             art.Margin = new Thickness(0, 0, 8, 0);
             art.Child = note;
             paused.Opacity = 0.6;
@@ -868,7 +903,8 @@ internal sealed class IslandWindow : Window
             timerBadge.Opacity = IslandTimer.Paused ? 0.5 : 1;
             bool dl = Island.Config?.IslandDownloads != false && DownloadWatch.Count > 0;
             downloadBadge.Visibility = dl ? Visibility.Visible : Visibility.Collapsed;
-            downloadText.Text = dl ? DownloadWatch.Size(DownloadWatch.Bytes) : "";
+            downloadText.Text = !dl ? "" : DownloadWatch.Speed > 0 ? DownloadWatch.Rate(DownloadWatch.Speed) : DownloadWatch.Size(DownloadWatch.Bytes);
+            downloadBadge.ToolTip = dl ? $"{DownloadWatch.Size(DownloadWatch.Bytes)} baixados" : null;
 
             leftBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
             rightBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
@@ -881,7 +917,7 @@ internal sealed class IslandWindow : Window
     private sealed class LevelView : Grid
     {
         private readonly TextBlock glyph = Glyph("", 14);
-        private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left };
+        private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = IslandBrushes.Accent, HorizontalAlignment = HorizontalAlignment.Left };
         private readonly TextBlock pct = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.8 };
         private const double TrackWidth = 150;
 
@@ -989,13 +1025,13 @@ internal sealed class IslandWindow : Window
         private static int lastTab = -1;
         private static readonly (string glyph, string name)[] tabs =
         {
-            (IslandGlyphs.Music, "Música"), (IslandGlyphs.Calendar, "Calendário"), (IslandGlyphs.Controls, "Controles"), (IslandGlyphs.Tray, "Bandeja"),
-            (ExtraGlyphs.Folder, "Arquivos"), (ExtraGlyphs.Clipboard, "Copiados"), (ExtraGlyphs.Timer, "Timer"),
+            ("\uE80F", "Início"), (IslandGlyphs.Music, "Música"), (IslandGlyphs.Calendar, "Calendário"), (IslandGlyphs.Controls, "Controles"),
+            (IslandGlyphs.Tray, "Bandeja"), (ExtraGlyphs.Folder, "Arquivos"), (ExtraGlyphs.Clipboard, "Copiados"), (ExtraGlyphs.Timer, "Timer"),
         };
-        public const int ShelfTab = 4;
+        public const int HomeTab = 0, MusicTab = 1, ShelfTab = 5;
         /// <summary>Tab the next panel opens on (files dragged in), instead of the last one used.</summary>
         public static int? Preselect;
-        private static readonly Brush chipOn = Frozen(new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF)));
+        private readonly Brush chipOn;
 
         private readonly DocaConfig cfg;
         private readonly FrameworkElement anchor;
@@ -1018,18 +1054,20 @@ internal sealed class IslandWindow : Window
             // ThemeMode would also give the island window a backdrop).
             try { Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Dark.xaml") }); }
             catch (Exception ex) { App.Log(ex); }
-            // White instead of the Windows accent blue on sliders, toggles and buttons: monochrome, like the notch.
-            var white = Frozen(new SolidColorBrush(Colors.White));
-            var whiteDim = Frozen(new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)));
-            var whiteLow = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)));
-            Resources["AccentFillColorDefaultBrush"] = white;
-            Resources["AccentFillColorSecondaryBrush"] = whiteDim;
-            Resources["AccentFillColorTertiaryBrush"] = whiteLow;
-            Resources["TextOnAccentFillColorPrimaryBrush"] = Frozen(new SolidColorBrush(Colors.Black));
+            // The island's accent (white by default) instead of the Windows accent blue on sliders, toggles and buttons.
+            var ac = IslandBrushes.Parse(cfg.IslandAccent, Colors.White);
+            var accent = Frozen(new SolidColorBrush(ac));
+            var accentDim = Frozen(new SolidColorBrush(Color.FromArgb(0xE6, ac.R, ac.G, ac.B)));
+            var accentLow = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, ac.R, ac.G, ac.B)));
+            Resources["AccentFillColorDefaultBrush"] = accent;
+            Resources["AccentFillColorSecondaryBrush"] = accentDim;
+            Resources["AccentFillColorTertiaryBrush"] = accentLow;
+            Resources["TextOnAccentFillColorPrimaryBrush"] = IslandBrushes.On(ac);
             // The Fluent slider paints its value and thumb with these (aliases of the accent resolved at load).
-            Resources["SliderThumbBackground"] = white;
-            Resources["SliderThumbBackgroundPointerOver"] = whiteDim;
-            Resources["SliderThumbBackgroundPressed"] = whiteLow;
+            Resources["SliderThumbBackground"] = accent;
+            Resources["SliderThumbBackgroundPointerOver"] = accentDim;
+            Resources["SliderThumbBackgroundPressed"] = accentLow;
+            chipOn = Frozen(new SolidColorBrush(ac == Colors.White ? Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x55, ac.R, ac.G, ac.B)));
 
             var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
@@ -1039,7 +1077,7 @@ internal sealed class IslandWindow : Window
                 // Icon-only tabs (name in the tooltip): a quiet toolbar instead of a row of labels.
                 var chip = new Border
                 {
-                    Child = Glyph(tabs[i].glyph, 15), Width = 38, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 4, 0),
+                    Child = Glyph(tabs[i].glyph, 15), Width = 36, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 2, 0),
                     Cursor = Cursors.Hand, ToolTip = tabs[i].name,
                 };
                 BarFx.Prepare(chip);
@@ -1066,12 +1104,12 @@ internal sealed class IslandWindow : Window
                 Select((index + (e.Delta < 0 ? 1 : tabs.Length - 1)) % tabs.Length);
             };
             Unloaded += (_, _) => Release();
-            // Last tab used, except Música with nothing playing: the calendar says more than "Nada tocando".
+            // Last tab used, except Música with nothing playing: the home widgets say more than "Nada tocando".
             Loaded += (_, _) =>
             {
                 if (index >= 0) return;
                 if (Preselect is int p) { Preselect = null; Select(p); return; }
-                Select(lastTab >= 0 && !(lastTab == 0 && !NowPlaying.HasSession) ? lastTab : NowPlaying.HasSession ? 0 : 1);
+                Select(lastTab >= 0 && !(lastTab == MusicTab && !NowPlaying.HasSession) ? lastTab : HomeTab);
             };
         }
 
@@ -1116,20 +1154,21 @@ internal sealed class IslandWindow : Window
             FrameworkElement content;
             switch (n)
             {
-                case 0:
+                case 0: content = new HomeView(cfg, Select, dismiss); break;
+                case 1:
                     content = NowPlaying.HasSession
                         ? new PlayerView(compact: false) { Margin = new Thickness(4, 2, 4, 0) }
                         : Empty("Nada tocando agora.");
                     break;
-                case 1: content = Borrow(new CalendarFlyout(cfg)); break;
-                case 2: content = Borrow(new ControlCenterFlyout(cfg, embedded: true)); break;
-                case 4: content = new ShelfView(hold, release); break;
-                case 5:
+                case 2: content = Borrow(new CalendarFlyout(cfg)); break;
+                case 3: content = Borrow(new ControlCenterFlyout(cfg, embedded: true)); break;
+                case 5: content = new ShelfView(hold, release); break;
+                case 6:
                     content = cfg.IslandClipboard
-                        ? new ClipboardView(dismiss)
+                        ? new ClipboardView(dismiss, hold, release)
                         : Empty("O histórico está desligado (Preferências → Topo da tela).");
                     break;
-                case 6: content = new TimerView(); break;
+                case 7: content = new TimerView(); break;
                 default: content = TrayGrid(); break;
             }
             body.Child = content;

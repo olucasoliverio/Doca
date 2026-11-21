@@ -131,13 +131,19 @@ public partial class App : Application
         {
             bool fs = tracker.IsFullscreen(m.Handle);
             if (cfg!.ScreenCorners) corners.AddRange(CornerWindow.CreateFor(m, cfg.ScreenCornerRadius));
-            if ((cfg!.MenuBarAllScreens || m.Primary) && cfg.IslandOnly && cfg.DynamicIsland)
+            if (cfg!.IslandOnly && cfg.DynamicIsland)
             {
                 // No bar: the island stands alone at the top (no reserved strip, windows keep the full height).
-                Island.Start(cfg);
-                var i = new IslandWindow(cfg, m.Handle, tracker!);
-                if (!fs) i.Show();
-                islands.Add(i);
+                // One per screen, or a single one that follows the mouse between screens.
+                bool here = cfg.IslandFollowCursor ? m.Primary : cfg.MenuBarAllScreens || m.Primary;
+                if (here)
+                {
+                    Island.Start(cfg);
+                    var i = new IslandWindow(cfg, m.Handle, tracker!);
+                    if (!fs) i.Show();
+                    if (cfg.IslandFollowCursor) i.FollowCursor();
+                    islands.Add(i);
+                }
             }
             else if (cfg!.MenuBarAllScreens || m.Primary)
             {

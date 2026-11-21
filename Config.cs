@@ -78,6 +78,17 @@ internal sealed class DocaConfig
     /// <summary>Files kept on the island's shelf (paths; nothing is copied).</summary>
     public List<string> ShelfFiles { get; set; } = new();
     public List<string> ClipboardPinned { get; set; } = new();
+    /// <summary>One island that moves to the monitor under the mouse, instead of one per screen.</summary>
+    public bool IslandFollowCursor { get; set; } = false;
+    /// <summary>"Pequena", "Média" or "Grande".</summary>
+    public string IslandSize { get; set; } = "Média";
+    /// <summary>Bottom corner radius of the open panel (DIP).</summary>
+    public double IslandCorner { get; set; } = 42;
+    /// <summary>Island background and accent (sliders, bars, selected tab), "#RRGGBB".</summary>
+    public string IslandColor { get; set; } = "#000000";
+    public string IslandAccent { get; set; } = "#FFFFFF";
+    /// <summary>Widgets on the panel's home tab, in order.</summary>
+    public List<string> IslandWidgets { get; set; } = new() { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;

@@ -340,6 +340,14 @@ internal static class DownloadWatch
 
     public static int Count => active.Count;
     public static long Bytes => active.Values.Sum();
+    /// <summary>Bytes per second over all active downloads (smoothed).</summary>
+    public static double Speed { get; private set; }
+    /// <summary>Active downloads: display name and bytes so far.</summary>
+    public static IEnumerable<(string name, long bytes)> Active => active.Select(kv => (DisplayName(kv.Key), kv.Value));
+    /// <summary>Finished in this session, newest first (at most 5).</summary>
+    public static readonly List<string> Recent = new();
+    private static long lastBytes;
+    private static DateTime lastTime;
     /// <summary>Raised on the UI thread: started, finished, or size changed.</summary>
     public static event Action? Changed;
 
@@ -402,6 +410,9 @@ internal static class DownloadWatch
 
     private static void Done(string final)
     {
+        Recent.RemoveAll(x => x.Equals(final, StringComparison.OrdinalIgnoreCase));
+        Recent.Insert(0, final);
+        if (Recent.Count > 5) Recent.RemoveAt(5);
         if (Island.Config?.IslandDownloads == false) return;
         Island.Notify(new StatusActivity(ExtraGlyphs.Download, Path.GetFileName(final), "Concluído", true, Seconds: 5,
             Click: () => Shell.Reveal(final)));
@@ -421,8 +432,19 @@ internal static class DownloadWatch
             try { active[p] = new FileInfo(p).Length; }
             catch { /* renamed meanwhile */ }
         }
+        // Browsers write in bursts: an exponential average keeps the speed readable.
+        var now = DateTime.Now;
+        long bytes = Bytes;
+        double secs = (now - lastTime).TotalSeconds;
+        if (active.Count == 0) Speed = 0;
+        else if (secs > 0.3 && secs < 5 && bytes >= lastBytes) Speed = Speed * 0.6 + (bytes - lastBytes) / secs * 0.4;
+        lastBytes = bytes;
+        lastTime = now;
         Changed?.Invoke();
     }
+
+    public static string Rate(double bytesPerSecond) =>
+        bytesPerSecond >= 1 << 20 ? $"{bytesPerSecond / (1 << 20):0.0} MB/s" : $"{bytesPerSecond / 1024:0} KB/s";
 
     public static string Size(long bytes) =>
         bytes >= 1 << 30 ? $"{bytes / (double)(1 << 30):0.0} GB" : bytes >= 1 << 20 ? $"{bytes / (double)(1 << 20):0} MB" : $"{bytes / 1024.0:0} KB";
@@ -530,6 +552,28 @@ internal static class IslandBrushes
     public static readonly Brush Faint = F(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
     public static readonly Brush Orange = F(Color.FromRgb(0xFF, 0x9F, 0x0A));
     public static readonly Brush Green = F(Color.FromRgb(0x30, 0xD1, 0x58));
+
+    private static string? accentKey;
+    private static Brush accent = Brushes.White;
+    /// <summary>Island accent (Preferências → Topo da tela): sliders, level and progress bars, selected tab.</summary>
+    public static Brush Accent
+    {
+        get
+        {
+            var key = Island.Config?.IslandAccent ?? "#FFFFFF";
+            if (key != accentKey) { accentKey = key; accent = F(Parse(key, Colors.White)); }
+            return accent;
+        }
+    }
+
+    public static Color Parse(string hex, Color fallback)
+    {
+        try { return (Color)ColorConverter.ConvertFromString(hex); }
+        catch { return fallback; }
+    }
+
+    /// <summary>Black or white, whichever reads on this color.</summary>
+    public static Brush On(Color c) => 0.299 * c.R + 0.587 * c.G + 0.114 * c.B > 150 ? Brushes.Black : Brushes.White;
     private static Brush F(Color c) { var b = new SolidColorBrush(c); b.Freeze(); return b; }
 
     public static TextBlock Glyph(string g, double size) => new()
@@ -672,11 +716,13 @@ internal sealed class ClipboardView : StackPanel
 {
     private readonly StackPanel list = new();
     private readonly ScrollViewer scroll;
-    private readonly Action dismiss;
+    private readonly Action dismiss, hold, release;
 
-    public ClipboardView(Action dismiss)
+    public ClipboardView(Action dismiss, Action hold, Action release)
     {
         this.dismiss = dismiss;
+        this.hold = hold;
+        this.release = release;
         scroll = new ScrollViewer { Content = list, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, -6, 0), Padding = new Thickness(0, 0, 6, 0) };
         Children.Add(scroll);
         Loaded += (_, _) => { ClipboardHistory.Changed += Fill; Fill(); };
@@ -695,7 +741,7 @@ internal sealed class ClipboardView : StackPanel
         }
         foreach (var e in items) list.Children.Add(Row(e));
         var footer = new DockPanel { Margin = new Thickness(2, 8, 2, 0), LastChildFill = false };
-        footer.Children.Add(IslandBrushes.Text("Clique para copiar de novo", 11.5, IslandBrushes.Dim));
+        footer.Children.Add(IslandBrushes.Text("Clique para copiar de novo, ou arraste para um app", 11.5, IslandBrushes.Dim));
         var clear = IslandBrushes.Button(IslandBrushes.Text("Limpar", 11.5), ClipboardHistory.Clear, "Apaga tudo, menos os fixados");
         DockPanel.SetDock(clear, Dock.Right);
         footer.Children.Add(clear);
@@ -744,14 +790,61 @@ internal sealed class ClipboardView : StackPanel
         var row = new Border { Child = grid, Padding = new Thickness(6, 8, 6, 8), Margin = new Thickness(0, 0, 0, 4), CornerRadius = new CornerRadius(12), Background = IslandBrushes.Card, Cursor = Cursors.Hand };
         row.MouseEnter += (_, _) => { row.Background = IslandBrushes.Faint; actions.Visibility = Visibility.Visible; };
         row.MouseLeave += (_, _) => { row.Background = IslandBrushes.Card; actions.Visibility = Visibility.Hidden; };
+        // Click copies it again; dragging drops it straight into another app (text, image or files).
+        Point? down = null;
+        row.MouseLeftButtonDown += (_, ev) => down = ev.GetPosition(row);
+        row.MouseMove += (_, ev) =>
+        {
+            if (down is not Point d || ev.LeftButton != MouseButtonState.Pressed) return;
+            var p = ev.GetPosition(row);
+            if (Math.Abs(p.X - d.X) < 5 && Math.Abs(p.Y - d.Y) < 5) return;
+            down = null;
+            if (DragData(e) is not { } data) return;
+            hold();
+            try { DragDrop.DoDragDrop(row, data, DragDropEffects.Copy); }
+            catch (Exception ex) { App.Log(ex); }
+            finally { release(); }
+        };
         row.MouseLeftButtonUp += (_, ev) =>
         {
+            if (down == null) return; // end of a drag
+            down = null;
             ev.Handled = true;
             ClipboardHistory.Copy(e);
             dismiss();
             Island.Notify(new StatusActivity(ExtraGlyphs.Done, "Copiado", "Cole com Ctrl+V", true));
         };
         return row;
+    }
+
+    /// <summary>
+    /// What a drag carries. Images also go as a PNG file: chat apps and e-mail take files, not bitmaps.
+    /// </summary>
+    private static DataObject? DragData(ClipEntry e)
+    {
+        var data = new DataObject();
+        if (e.Files != null) data.SetData(DataFormats.FileDrop, e.Files);
+        else if (e.Image != null)
+        {
+            try
+            {
+                var dir = Path.Combine(Path.GetTempPath(), "Doca", "Copiados");
+                Directory.CreateDirectory(dir);
+                var file = Path.Combine(dir, $"Imagem {DateTime.Now:yyyy-MM-dd HHmmss}.png");
+                using (var fs = File.Create(file))
+                {
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(e.Image));
+                    enc.Save(fs);
+                }
+                data.SetData(DataFormats.FileDrop, new[] { file });
+                data.SetImage(e.Image);
+            }
+            catch (Exception ex) { App.Log(ex); return null; }
+        }
+        else if (e.Text != null) data.SetText(e.Text);
+        else return null;
+        return data;
     }
 }
 
@@ -764,7 +857,7 @@ internal sealed class TimerView : StackPanel
         FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, FontSize = 44,
         HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8),
     };
-    private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = IslandBrushes.Accent, HorizontalAlignment = HorizontalAlignment.Left };
     private bool runningLayout;
 
     public TimerView()

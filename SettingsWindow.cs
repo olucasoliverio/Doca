@@ -151,8 +151,24 @@ internal sealed class SettingsWindow : Window
                 () => cfg.IslandOpenOnHover, v => { cfg.IslandOpenOnHover = v; Changed(Apply.Screens); }),
             Toggle("Reservar espaço no topo", "Janelas maximizadas começam logo abaixo da ilha, então nada fica escondido embaixo dela. Desligado: as janelas usam a tela inteira e a ilha fica por cima.",
                 () => cfg.IslandReserveTop, v => { cfg.IslandReserveTop = v; Changed(Apply.Screens); }),
-            Toggle("Mostrar em todas as telas", "Uma ilha em cada monitor. Desligado: só na tela principal.",
-                () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); })),
+            Row("Telas", "Uma ilha em cada monitor, só na principal, ou uma só que vai para a tela onde está o mouse.",
+                Choice(new[] { "Todas", "Só a principal", "Seguir o mouse" },
+                    () => cfg.IslandFollowCursor ? "Seguir o mouse" : cfg.MenuBarAllScreens ? "Todas" : "Só a principal",
+                    v =>
+                    {
+                        cfg.IslandFollowCursor = v == "Seguir o mouse";
+                        if (!cfg.IslandFollowCursor) cfg.MenuBarAllScreens = v == "Todas";
+                        Changed(Apply.Screens);
+                    }))),
+        Card(
+            Row("Tamanho", "Da ilha fechada.",
+                Choice(new[] { "Pequena", "Média", "Grande" }, () => cfg.IslandSize, v => { cfg.IslandSize = v; Changed(Apply.Screens); })),
+            SliderRow("Cantos do painel", 16, 56, () => cfg.IslandCorner, v => { cfg.IslandCorner = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
+            Row("Cor da ilha", null,
+                Choice(IslandColors.Keys.ToArray(), () => NameOf(IslandColors, cfg.IslandColor), v => { cfg.IslandColor = IslandColors[v]; Changed(Apply.Screens); })),
+            Row("Cor de destaque", "Sliders, barras de progresso e a aba selecionada.",
+                Choice(AccentColors.Keys.ToArray(), () => NameOf(AccentColors, cfg.IslandAccent), v => { cfg.IslandAccent = AccentColors[v]; Changed(Apply.Screens); }))),
+        Card(WidgetToggles()),
         Card(
             Toggle("Música tocando", "Capa e equalizador na ilha enquanto algo toca (Spotify, YouTube…), e o aviso de nova faixa.",
                 () => cfg.ShowNowPlaying, v => { cfg.ShowNowPlaying = v; Changed(Apply.Screens); }),
@@ -169,6 +185,34 @@ internal sealed class SettingsWindow : Window
                 () => cfg.IslandDownloads, v => { cfg.IslandDownloads = v; Changed(Apply.Screens); })),
         Card(
             Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Arraste arquivos até a ilha para guardá-los na aba Arquivos e arraste-os de lá quando for usar. Botão direito na ilha (ou ⋯ no painel): menu do sistema. A ilha também avisa volume, brilho, nova música, fones Bluetooth (com a bateria), Caps Lock, downloads e o fim do timer.")));
+
+    private static readonly Dictionary<string, string> IslandColors = new()
+    {
+        ["Preto"] = "#000000", ["Grafite"] = "#1C1C1E", ["Azul-noite"] = "#0B1A33", ["Roxo"] = "#1E0B33", ["Vinho"] = "#2A0A14",
+    };
+    private static readonly Dictionary<string, string> AccentColors = new()
+    {
+        ["Branco"] = "#FFFFFF", ["Azul"] = "#0A84FF", ["Verde"] = "#30D158", ["Laranja"] = "#FF9F0A", ["Rosa"] = "#FF375F", ["Roxo"] = "#BF5AF2", ["Amarelo"] = "#FFD60A",
+    };
+    private static readonly string[] AllWidgets = { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
+
+    private static string NameOf(Dictionary<string, string> map, string hex) =>
+        map.FirstOrDefault(kv => kv.Value.Equals(hex, StringComparison.OrdinalIgnoreCase)).Key ?? map.Keys.First();
+
+    /// <summary>Which widgets the panel's Início tab shows (kept in this order).</summary>
+    private UIElement[] WidgetToggles()
+    {
+        var rows = new List<UIElement> { Row("Widgets do Início", "A primeira aba do painel mostra estes cartões, dois por linha.", null) };
+        foreach (var w in AllWidgets)
+            rows.Add(Toggle(w, null, () => cfg.IslandWidgets.Contains(w), v =>
+            {
+                var set = cfg.IslandWidgets.ToHashSet();
+                if (v) set.Add(w); else set.Remove(w);
+                cfg.IslandWidgets = AllWidgets.Where(set.Contains).ToList();
+                Changed(Apply.Screens);
+            }));
+        return rows.ToArray();
+    }
 
     private UIElement BarPage() => Stack(
         ModeCard(),
