@@ -200,6 +200,7 @@ internal sealed class IslandWindow : Window
     private IslandActivity? hud;
     private bool trackHud, hovering;
     private int menusOpen;
+    private long menuClosedAt;
     private string? lastTrack;
     /// <summary>Pointer over the island (the resting pill grows a little: it is clickable).</summary>
     private bool pointerIn;
@@ -384,6 +385,9 @@ internal sealed class IslandWindow : Window
     /// right-click on the island (menu at the pointer, like any context menu).</param>
     private void ShowSystemMenu(FrameworkElement? button = null)
     {
+        // A click on ⋯ with the menu open first closes the menu (outside click), then reaches the button:
+        // the button toggles, so that same click must not open it again.
+        if (Environment.TickCount64 - menuClosedAt < 350) return;
         var m = MenuBarWindow.SystemMenu(cfg);
         if (button != null)
         {
@@ -394,7 +398,7 @@ internal sealed class IslandWindow : Window
         }
         else m.Placement = PlacementMode.MousePoint;
         m.Opened += (_, _) => menusOpen++;
-        m.Closed += (_, _) => menusOpen = Math.Max(0, menusOpen - 1);
+        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); menuClosedAt = Environment.TickCount64; };
         Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }
