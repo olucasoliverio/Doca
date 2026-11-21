@@ -50,7 +50,7 @@ internal sealed class DocaConfig
     public bool MenuBarAllScreens { get; set; } = true;
     public double MenuBarOpacity { get; set; } = 0.55;
     /// <summary>"Vidro" (light acrylic), "Transparente" (no background, like macOS Tahoe) or "Sólido" (dark, MenuBarOpacity).</summary>
-    public string MenuBarStyle { get; set; } = "Vidro";
+    public string MenuBarStyle { get; set; } = "Transparente";
     /// <summary>Bar detached from the screen edge, with rounded corners.</summary>
     public bool MenuBarFloating { get; set; } = false;
     /// <summary>Tray icons drawn as white silhouettes, like macOS menu bar icons.</summary>

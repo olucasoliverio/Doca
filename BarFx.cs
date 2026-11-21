@@ -14,6 +14,8 @@ namespace Doca;
 internal static class BarFx
 {
     private const byte HoverAlpha = 0x2E, PressedAlpha = 0x4D;
+    /// <summary>Softer highlight for the transparent bar, so hovering doesn't paint a piece of strip back.</summary>
+    public static bool Subtle { get; set; }
     private static readonly IEasingFunction ease = Frozen(new CubicEase { EasingMode = EasingMode.EaseOut });
 
     private static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
@@ -21,9 +23,9 @@ internal static class BarFx
     /// <summary>Gives the border its own (animatable) highlight brush, fully transparent at rest.</summary>
     public static void Prepare(Border b) => b.Background = new SolidColorBrush(Color.FromArgb(0, 0xFF, 0xFF, 0xFF));
 
-    public static void Hot(Border b, bool on) => To(b, on ? HoverAlpha : (byte)0, on ? 90 : 200);
+    public static void Hot(Border b, bool on) => To(b, on ? (Subtle ? (byte)0x1C : HoverAlpha) : (byte)0, on ? 90 : 200);
 
-    public static void Pressed(Border b) => To(b, PressedAlpha, 60);
+    public static void Pressed(Border b) => To(b, Subtle ? (byte)0x33 : PressedAlpha, 60);
 
     private static void To(Border b, byte alpha, int ms)
     {

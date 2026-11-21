@@ -189,13 +189,10 @@ internal sealed class MenuBarWindow : Window
         right.Children.Add(Item(Glyph(""), b => Flyout.Toggle("control", b, () => new ControlCenterFlyout(cfg)), "Central de Controle", pad: 7));
         right.Children.Add(Item(clock, b => Flyout.Toggle("calendar", b, () => new CalendarFlyout(cfg)), null, pad: 10));
 
+        // Transparente has no background at all, like the iPhone's status bar around the island: no strip,
+        // just text and icons on the wallpaper (the shadow below keeps them readable).
         var root = new Grid();
-        if (cfg.MenuBarStyle == "Transparente")
-        {
-            // No background at all, like macOS Tahoe: a faint fade from the top edge keeps the text readable
-            // on bright wallpapers without reading as a bar.
-            root.Background = Frozen(new LinearGradientBrush(Color.FromArgb(0x38, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), 90));
-        }
+        BarFx.Subtle = cfg.MenuBarStyle == "Transparente";
         if (cfg.MenuBarStyle != "Sólido")
         {
             // Light/no tint lets the wallpaper through, so white text needs a soft shadow to stay legible.
