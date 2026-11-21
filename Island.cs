@@ -608,10 +608,8 @@ internal sealed class IslandWindow : Window
         else if (standalone || hasMusic)
         {
             rest.Update(cfg.ShowNowPlaying);
-            // A notch reads as one when it is clearly wider than tall.
-            double width = !standalone ? 168 : Math.Round((hasMusic ? 250 : cfg.ClockShowSeconds ? 160 : 140) * SizeScale);
-            // Badges sit on both sides of the clock: the notch grows evenly so it stays centered.
-            width += 2 * rest.BadgeWidth;
+            // As wide as what it shows (see RestView), never narrower than clearly wider-than-tall.
+            double width = rest.DesiredWidth;
             // Pointer on it (and it opens on click): a small stretch, like a button lifting.
             if (pointerIn && CanExpand) width += 14;
             Show(rest, width, Collapsed);
@@ -822,57 +820,63 @@ internal sealed class IslandWindow : Window
         VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center,
     };
 
-    /// <summary>Resting pill: cover on the left, equalizer (or pause) on the right; the clock in the middle when standalone.</summary>
+    /// <summary>
+    /// Resting pill, two looks. Music playing: round cover on the left and a waveform in the album's color on the
+    /// right, nothing in between (like iOS). Otherwise: the clock alone in the middle, with what is going on next
+    /// to it (camera/microphone dots, the paused song's cover, timer, download). The pill is as wide as that.
+    /// </summary>
     private sealed class RestView : Grid
     {
-        private readonly Border art = Art(18, 5);
-        private readonly TextBlock note = Glyph(IslandGlyphs.Music, 9);
-        private readonly Equalizer eq = new() { HorizontalAlignment = HorizontalAlignment.Right };
-        private readonly TextBlock paused = Glyph(IslandGlyphs.Pause, 10);
+        private readonly bool withClock;
+        private readonly double scale;
+        private readonly Grid playing = new();
+        private readonly Border art = Art(22, 11);
+        private readonly IslandEq eq = new();
+        private readonly StackPanel center = new() { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        private readonly Border pausedArt = Art(16, 8);
         private readonly TextBlock clock = new()
         {
             FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, FontSize = 14,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center,
         };
-
-        // Badges: camera/microphone dots on the left (like iOS's privacy dots), timer and download on the right.
-        private readonly StackPanel leftBadges = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        private readonly StackPanel rightBadges = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
         private readonly System.Windows.Shapes.Ellipse camDot = Dot(IslandBrushes.Green), micDot = Dot(IslandBrushes.Orange);
         private readonly TextBlock timerText = BadgeText(), downloadText = BadgeText();
         private readonly StackPanel timerBadge, downloadBadge;
+        private bool? wasPlaying;
 
         public RestView(bool withClock, double clockSize)
         {
+            this.withClock = withClock;
+            scale = clockSize / 14;
             clock.FontSize = clockSize;
-            art.Margin = new Thickness(0, 0, 8, 0);
-            art.Child = note;
-            paused.Opacity = 0.6;
-            var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 0, 0) };
-            left.Children.Add(art);
-            left.Children.Add(leftBadges);
-            leftBadges.Children.Add(camDot);
-            leftBadges.Children.Add(micDot);
+            art.HorizontalAlignment = HorizontalAlignment.Left;
+            art.Margin = new Thickness(Math.Round(10 * scale), 0, 0, 0);
+            eq.HorizontalAlignment = HorizontalAlignment.Right;
+            eq.Margin = new Thickness(0, 0, Math.Round(14 * scale), 0);
+            playing.Children.Add(art);
+            playing.Children.Add(eq);
+
+            pausedArt.Opacity = 0.55;
+            pausedArt.Margin = new Thickness(0, 0, 8, 0);
+            pausedArt.ToolTip = "Pausado";
             timerBadge = Badge(ExtraGlyphs.Timer, timerText);
             downloadBadge = Badge(ExtraGlyphs.Download, downloadText);
-            rightBadges.Children.Add(downloadBadge);
-            rightBadges.Children.Add(timerBadge);
-            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 16, 0) };
-            right.Children.Add(rightBadges);
-            right.Children.Add(eq);
-            right.Children.Add(paused);
-            Children.Add(left);
-            Children.Add(right);
-            clock.Visibility = withClock ? Visibility.Visible : Visibility.Collapsed;
-            Children.Add(clock);
+            center.Children.Add(camDot);
+            center.Children.Add(micDot);
+            center.Children.Add(pausedArt);
+            center.Children.Add(clock);
+            center.Children.Add(timerBadge);
+            center.Children.Add(downloadBadge);
+            Children.Add(playing);
+            Children.Add(center);
         }
 
-        private static System.Windows.Shapes.Ellipse Dot(Brush b) => new() { Width = 7, Height = 7, Fill = b, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        private static System.Windows.Shapes.Ellipse Dot(Brush b) => new() { Width = 7, Height = 7, Fill = b, Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
         private static TextBlock BadgeText() => new() { FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
 
         private static StackPanel Badge(string glyph, TextBlock text)
         {
-            var s = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 10, 0) };
+            var s = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(10, 0, 0, 0) };
             var g = Glyph(glyph, 11);
             g.Opacity = 0.8;
             s.Children.Add(g);
@@ -882,16 +886,23 @@ internal sealed class IslandWindow : Window
 
         public string Clock { set => clock.Text = value; }
 
-        /// <summary>Extra width each side needs for the badges (the notch grows by twice this).</summary>
-        public double BadgeWidth { get; private set; }
+        /// <summary>Width the pill wants for what it shows now (set by Update).</summary>
+        public double DesiredWidth { get; private set; }
 
         public void Update(bool showMusic)
         {
-            bool music = showMusic && NowPlaying.HasSession;
-            art.Visibility = music ? Visibility.Visible : Visibility.Collapsed;
-            if (music) SetArt(art, note);
-            eq.Playing = music && NowPlaying.Playing;
-            paused.Visibility = music && !NowPlaying.Playing ? Visibility.Visible : Visibility.Collapsed;
+            bool music = showMusic && NowPlaying.HasSession, play = music && NowPlaying.Playing;
+            playing.Visibility = play ? Visibility.Visible : Visibility.Collapsed;
+            if (play)
+            {
+                SetArt(art, null);
+                eq.Color = ArtColor.Of(NowPlaying.Art);
+            }
+            eq.Playing = play;
+            // Paused: the cover stays as a small, dim reminder next to the clock (a click opens the player).
+            pausedArt.Visibility = music && !play ? Visibility.Visible : Visibility.Collapsed;
+            if (music && !play) SetArt(pausedArt, null);
+            clock.Visibility = withClock && !play ? Visibility.Visible : Visibility.Collapsed;
 
             bool privacy = Island.Config?.IslandPrivacy != false;
             camDot.Visibility = privacy && PrivacyWatch.CamApp != null ? Visibility.Visible : Visibility.Collapsed;
@@ -906,10 +917,144 @@ internal sealed class IslandWindow : Window
             downloadText.Text = !dl ? "" : DownloadWatch.Speed > 0 ? DownloadWatch.Rate(DownloadWatch.Speed) : DownloadWatch.Size(DownloadWatch.Bytes);
             downloadBadge.ToolTip = dl ? $"{DownloadWatch.Size(DownloadWatch.Bytes)} baixados" : null;
 
-            leftBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            rightBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-            // Rounded up in steps so the notch doesn't twitch as the digits change width.
-            BadgeWidth = Math.Ceiling(Math.Max(leftBadges.DesiredSize.Width, rightBadges.DesiredSize.Width) / 8) * 8;
+            // The first visible item in the middle has no left gap.
+            bool first = true;
+            foreach (FrameworkElement e in center.Children)
+            {
+                if (e.Visibility != Visibility.Visible) continue;
+                if (e is StackPanel badge) badge.Margin = new Thickness(first ? 0 : 10, 0, 0, 0);
+                first = false;
+            }
+            center.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            // Rounded up in steps so the pill doesn't twitch as digits change width.
+            double mid = Math.Ceiling(center.DesiredSize.Width / 8) * 8;
+            DesiredWidth = play
+                ? Math.Round(190 * scale) + (mid > 0 ? mid + 16 : 0)
+                : Math.Max(Math.Round(112 * scale), mid + Math.Round(52 * scale));
+
+            // Switching between the two looks: the new one comes into focus.
+            if (wasPlaying != null && wasPlaying != play && IsLoaded) IslandWindow.FadeIn(play ? playing : center);
+            wasPlaying = play;
+        }
+    }
+
+    /// <summary>
+    /// iOS-style waveform: four rounded bars swinging around the middle, each with its own rhythm, in the album's
+    /// color. Animated (30 fps) only while playing.
+    /// </summary>
+    private sealed class IslandEq : StackPanel
+    {
+        private static readonly double[][] steps =
+        {
+            new[] { 0.35, 0.9, 0.5, 1.0, 0.4 }, new[] { 0.7, 0.3, 1.0, 0.45, 0.8 },
+            new[] { 0.45, 1.0, 0.35, 0.75, 0.55 }, new[] { 0.9, 0.4, 0.7, 0.3, 1.0 },
+        };
+        private static readonly double[] beats = { 0.95, 1.15, 1.05, 1.3 };
+        private readonly ScaleTransform[] bars = new ScaleTransform[4];
+        private readonly SolidColorBrush fill = new(Colors.White);
+        private bool playing;
+
+        public IslandEq()
+        {
+            Orientation = Orientation.Horizontal;
+            VerticalAlignment = VerticalAlignment.Center;
+            Height = 16;
+            for (int i = 0; i < bars.Length; i++)
+            {
+                bars[i] = new ScaleTransform(1, 0.4);
+                Children.Add(new System.Windows.Shapes.Rectangle
+                {
+                    Width = 3, Height = 16, RadiusX = 1.5, RadiusY = 1.5, Fill = fill, Margin = new Thickness(i == 0 ? 0 : 2.5, 0, 0, 0),
+                    RenderTransformOrigin = new Point(0.5, 0.5), RenderTransform = bars[i],
+                });
+            }
+        }
+
+        public Color Color
+        {
+            set
+            {
+                if (fill.Color == value) return;
+                fill.BeginAnimation(SolidColorBrush.ColorProperty, new ColorAnimation(value, TimeSpan.FromMilliseconds(400)));
+            }
+        }
+
+        public bool Playing
+        {
+            set
+            {
+                if (playing == value) return;
+                playing = value;
+                for (int i = 0; i < bars.Length; i++)
+                {
+                    if (!value) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.4; continue; }
+                    var anim = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
+                    var seq = steps[i];
+                    double step = beats[i] / seq.Length;
+                    for (int k = 0; k <= seq.Length; k++)
+                        anim.KeyFrames.Add(new EasingDoubleKeyFrame(seq[k % seq.Length], KeyTime.FromTimeSpan(TimeSpan.FromSeconds(step * k)),
+                            new SineEase { EasingMode = EasingMode.EaseInOut }));
+                    Timeline.SetDesiredFrameRate(anim, 30);
+                    bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, anim);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A vivid color from the cover (saturated pixels weigh more), brightened to read on black. Cached per image.
+    /// </summary>
+    private static class ArtColor
+    {
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ImageSource, object> cache = new();
+
+        public static Color Of(ImageSource? img)
+        {
+            if (img is not System.Windows.Media.Imaging.BitmapSource bmp) return Colors.White;
+            if (cache.TryGetValue(img, out var c)) return (Color)c;
+            var color = Compute(bmp);
+            cache.AddOrUpdate(img, color);
+            return color;
+        }
+
+        private static Color Compute(System.Windows.Media.Imaging.BitmapSource bmp)
+        {
+            try
+            {
+                double k = 24.0 / Math.Max(bmp.PixelWidth, bmp.PixelHeight);
+                var small = new System.Windows.Media.Imaging.FormatConvertedBitmap(
+                    new System.Windows.Media.Imaging.TransformedBitmap(bmp, new ScaleTransform(k, k)), PixelFormats.Bgra32, null, 0);
+                int w = small.PixelWidth, h = small.PixelHeight;
+                var px = new byte[w * h * 4];
+                small.CopyPixels(px, w * 4, 0);
+                // Hue histogram of the vivid pixels (12 bins): the most present vivid hue wins, even when most of
+                // the cover is white or dark. An average would mix everything into gray.
+                var bins = new (double r, double g, double b, double weight)[12];
+                int vivid = 0;
+                for (int i = 0; i < px.Length; i += 4)
+                {
+                    double B = px[i] / 255.0, G = px[i + 1] / 255.0, R = px[i + 2] / 255.0;
+                    double max = Math.Max(R, Math.Max(G, B)), min = Math.Min(R, Math.Min(G, B)), d = max - min;
+                    double sat = max == 0 ? 0 : d / max;
+                    if (sat < 0.35 || max < 0.25) continue;
+                    vivid++;
+                    double hue = d == 0 ? 0 : max == R ? (G - B) / d % 6 : max == G ? (B - R) / d + 2 : (R - G) / d + 4;
+                    int bin = ((int)Math.Floor((hue < 0 ? hue + 6 : hue) * 2) % 12 + 12) % 12;
+                    double wgt = sat * max;
+                    bins[bin] = (bins[bin].r + R * wgt, bins[bin].g + G * wgt, bins[bin].b + B * wgt, bins[bin].weight + wgt);
+                }
+                // Almost no color in it (black-and-white cover): plain white bars.
+                if (vivid < px.Length / 4 * 0.04) return Colors.White;
+                var best = bins.MaxBy(x => x.weight);
+                double r = best.r / best.weight, g = best.g / best.weight, b = best.b / best.weight;
+                double top = Math.Max(r, Math.Max(g, b));
+                if (top <= 0) return Colors.White;
+                // Full brightness, then a touch of white so dark hues still read on the black pill.
+                r /= top; g /= top; b /= top;
+                const double lift = 0.25;
+                return Color.FromRgb((byte)(255 * (r + (1 - r) * lift)), (byte)(255 * (g + (1 - g) * lift)), (byte)(255 * (b + (1 - b) * lift)));
+            }
+            catch (Exception ex) { App.Log(ex); return Colors.White; }
         }
     }
 
