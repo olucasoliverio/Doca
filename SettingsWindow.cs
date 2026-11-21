@@ -135,7 +135,11 @@ internal sealed class SettingsWindow : Window
             Toggle("Mostrar em todas as telas", "Uma barra em cada monitor. Desligado: só na tela principal.",
                 () => cfg.MenuBarAllScreens, v => { cfg.MenuBarAllScreens = v; Changed(Apply.Screens); }),
             SliderRow("Altura", 22, 40, () => cfg.MenuBarHeight, v => { cfg.MenuBarHeight = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
-            SliderRow("Opacidade", 0.1, 1, () => cfg.MenuBarOpacity, v => { cfg.MenuBarOpacity = v; Changed(Apply.Screens); }, v => $"{v * 100:0}%"),
+            Row("Estilo", "Vidro deixa a cor do papel de parede passar; Transparente não tem fundo; Sólido é escuro.",
+                Choice(new[] { "Vidro", "Transparente", "Sólido" }, () => cfg.MenuBarStyle, v => { cfg.MenuBarStyle = v; Changed(Apply.Screens); })),
+            SliderRow("Opacidade (Sólido)", 0.1, 1, () => cfg.MenuBarOpacity, v => { cfg.MenuBarOpacity = v; Changed(Apply.Screens); }, v => $"{v * 100:0}%"),
+            Toggle("Barra flutuante", "Afastada da borda da tela, com cantos arredondados.",
+                () => cfg.MenuBarFloating, v => { cfg.MenuBarFloating = v; Changed(Apply.Screens); }),
             Toggle("Mostrar em tela cheia ao apontar para o topo", "Num vídeo em tela cheia, deixar o ponteiro no alto da tela mostra a barra por cima, como no Mac.",
                 () => cfg.MenuBarRevealInFullscreen, v => { cfg.MenuBarRevealInFullscreen = v; Changed(Apply.Screens); })),
         Card(
@@ -144,6 +148,8 @@ internal sealed class SettingsWindow : Window
         Card(
             Toggle("Ícones da bandeja", "Ícones dos apps em segundo plano (Discord, Steam…), inclusive os que o Windows esconde.",
                 () => cfg.ShowTrayIcons, v => { cfg.ShowTrayIcons = v; Changed(Apply.Screens); }),
+            Toggle("Ícones da bandeja monocromáticos", "Desenha os ícones em branco, como no Mac. Avisos em vermelho (mensagens não lidas) continuam coloridos.",
+                () => cfg.TrayIconsMonochrome, v => { cfg.TrayIconsMonochrome = v; Changed(Apply.Screens); }),
             Row("Ordem dos ícones da bandeja", "Arraste os ícones na barra para reordenar, ou até ⌄ para recolher.",
                 Btn("Restaurar", () => { cfg.TrayOrder.Clear(); cfg.TrayCollapsed.Clear(); Changed(Apply.Screens); }))),
         TrayIconsCard(),

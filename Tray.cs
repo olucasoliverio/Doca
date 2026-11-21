@@ -208,7 +208,6 @@ internal sealed class TrayIconsPanel : StackPanel
 
     private const double Slot = 30; // icon 16 + padding 12 + margin 2
 
-    private readonly Brush hover;
     private readonly DocaConfig cfg;
     private readonly StackPanel icons = new() { Orientation = Orientation.Horizontal };
     private readonly Border chevron;
@@ -220,9 +219,8 @@ internal sealed class TrayIconsPanel : StackPanel
     private Point pressPoint;
     private bool dragging, overChevron;
 
-    public TrayIconsPanel(Brush hover, DocaConfig cfg)
+    public TrayIconsPanel(DocaConfig cfg)
     {
-        this.hover = hover;
         this.cfg = cfg;
         Orientation = Orientation.Horizontal;
         VerticalAlignment = VerticalAlignment.Stretch;
@@ -231,14 +229,15 @@ internal sealed class TrayIconsPanel : StackPanel
         {
             Child = new TextBlock { Text = "", FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center },
             Padding = new Thickness(8, 0, 8, 0), Margin = new Thickness(1, 3, 1, 3), CornerRadius = new CornerRadius(6),
-            Background = Brushes.Transparent, ToolTip = "Ícones da bandeja: recolher ou mostrar", Visibility = Visibility.Collapsed,
+            ToolTip = "Ícones da bandeja: recolher ou mostrar", Visibility = Visibility.Collapsed,
         };
-        chevron.MouseEnter += (_, _) => chevron.Background = hover;
-        chevron.MouseLeave += (_, _) => { if (!dragging) chevron.Background = Brushes.Transparent; };
+        BarFx.Prepare(chevron);
+        chevron.MouseEnter += (_, _) => BarFx.Hot(chevron, true);
+        chevron.MouseLeave += (_, _) => { if (!dragging) BarFx.Hot(chevron, false); };
         chevron.MouseLeftButtonUp += (_, _) =>
         {
             if (dragging) return;
-            Flyout.Toggle("tray-overflow", chevron, () => new TrayOverflowFlyout(cfg, hover, () => overflow));
+            Flyout.Toggle("tray-overflow", chevron, () => new TrayOverflowFlyout(cfg, () => overflow));
         };
         Children.Add(chevron);
         Children.Add(icons);
@@ -353,22 +352,23 @@ internal sealed class TrayIconsPanel : StackPanel
     public static int DoubleClick() => GetDoubleClickTime();
 
     /// <summary>Icon visual that follows the app's icon/tooltip/visibility changes while it is on screen.</summary>
-    public static Border Visual(NotifyIcon icon, Action? hiddenChanged = null)
+    public static Border Visual(NotifyIcon icon, Action? hiddenChanged = null, bool monochrome = false)
     {
-        var img = new Image { Width = 16, Height = 16, Source = icon.Icon, VerticalAlignment = VerticalAlignment.Center };
+        ImageSource? Source() => monochrome ? TemplateIcon.From(icon.Icon) : icon.Icon;
+        var img = new Image { Width = 16, Height = 16, Source = Source(), VerticalAlignment = VerticalAlignment.Center };
         RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
         var b = new Border
         {
             Child = img, Tag = icon,
             Padding = new Thickness(6, 0, 6, 0), Margin = new Thickness(1, 3, 1, 3), CornerRadius = new CornerRadius(6),
-            Background = Brushes.Transparent,
             ToolTip = string.IsNullOrWhiteSpace(icon.Title) ? null : icon.Title,
         };
+        BarFx.Prepare(b);
         PropertyChangedEventHandler changed = (_, e) => b.Dispatcher.BeginInvoke(() =>
         {
             switch (e.PropertyName)
             {
-                case nameof(NotifyIcon.Icon): img.Source = icon.Icon; break;
+                case nameof(NotifyIcon.Icon): img.Source = Source(); break;
                 case nameof(NotifyIcon.Title): b.ToolTip = string.IsNullOrWhiteSpace(icon.Title) ? null : icon.Title; break;
                 case nameof(NotifyIcon.IsHidden): hiddenChanged?.Invoke(); break;
             }
@@ -392,10 +392,10 @@ internal sealed class TrayIconsPanel : StackPanel
 
     private Border Button(NotifyIcon icon)
     {
-        var b = Visual(icon, () => Rebuild());
+        var b = Visual(icon, () => Rebuild(), cfg.TrayIconsMonochrome);
 
-        b.MouseEnter += (_, _) => { b.Background = hover; Place(b, icon); icon.IconMouseEnter(MousePos()); };
-        b.MouseLeave += (_, _) => { if (!dragging) b.Background = Brushes.Transparent; icon.IconMouseLeave(MousePos()); };
+        b.MouseEnter += (_, _) => { BarFx.Hot(b, true); Place(b, icon); icon.IconMouseEnter(MousePos()); };
+        b.MouseLeave += (_, _) => { if (!dragging) BarFx.Hot(b, false); icon.IconMouseLeave(MousePos()); };
         b.MouseMove += (_, e) =>
         {
             if (pressed == b && e.LeftButton == MouseButtonState.Pressed)
@@ -416,6 +416,7 @@ internal sealed class TrayIconsPanel : StackPanel
             Place(b, icon);
             if (e.ChangedButton == MouseButton.Left)
             {
+                BarFx.Pressed(b);
                 pressed = b;
                 pressPoint = e.GetPosition(icons);
                 dragging = false;
@@ -436,10 +437,12 @@ internal sealed class TrayIconsPanel : StackPanel
                 {
                     dragging = false;
                     b.Opacity = 1;
-                    chevron.Background = Brushes.Transparent;
+                    BarFx.Hot(chevron, false);
+                    BarFx.Hot(b, b.IsMouseOver);
                     EndDrag(icon);
                     return;
                 }
+                BarFx.Hot(b, b.IsMouseOver);
                 StepAside(b);
                 icon.IconMouseDown(MouseButton.Left, AnchorBelow(b), DoubleClick());
             }
@@ -452,7 +455,7 @@ internal sealed class TrayIconsPanel : StackPanel
     private void DragTo(Border b, double x, Point onChevron)
     {
         overChevron = onChevron.X >= 0 && onChevron.X <= chevron.ActualWidth;
-        chevron.Background = overChevron ? hover : Brushes.Transparent;
+        BarFx.Hot(chevron, overChevron);
         b.Opacity = overChevron ? 0.35 : 0.6;
         if (overChevron) return;
 
@@ -492,14 +495,12 @@ internal sealed class TrayIconsPanel : StackPanel
 internal sealed class TrayOverflowFlyout : Flyout
 {
     private readonly DocaConfig cfg;
-    private readonly Brush hover;
     private readonly Func<List<NotifyIcon>> noRoom;
     private readonly StackPanel content = new();
 
-    public TrayOverflowFlyout(DocaConfig cfg, Brush hover, Func<List<NotifyIcon>> noRoom) : base(cfg, 300)
+    public TrayOverflowFlyout(DocaConfig cfg, Func<List<NotifyIcon>> noRoom) : base(cfg, 300)
     {
         this.cfg = cfg;
-        this.hover = hover;
         this.noRoom = noRoom;
         Body.Children.Add(content);
         Body.Children.Add(Divider());
@@ -541,8 +542,8 @@ internal sealed class TrayOverflowFlyout : Flyout
         var b = TrayIconsPanel.Visual(icon);
         b.Padding = new Thickness(11, 9, 11, 9);
         b.Margin = new Thickness(2);
-        b.MouseEnter += (_, _) => { b.Background = hover; TrayIconsPanel.Place(b, icon); icon.IconMouseEnter(TrayIconsPanel.MousePos()); };
-        b.MouseLeave += (_, _) => { b.Background = Brushes.Transparent; icon.IconMouseLeave(TrayIconsPanel.MousePos()); };
+        b.MouseEnter += (_, _) => { BarFx.Hot(b, true); TrayIconsPanel.Place(b, icon); icon.IconMouseEnter(TrayIconsPanel.MousePos()); };
+        b.MouseLeave += (_, _) => { BarFx.Hot(b, false); icon.IconMouseLeave(TrayIconsPanel.MousePos()); };
         b.MouseMove += (_, _) => icon.IconMouseMove(TrayIconsPanel.MousePos());
         b.MouseDown += (_, e) => { e.Handled = true; TrayIconsPanel.Place(b, icon); };
         // Down+up together on release: the app's menu takes focus and closes this panel right after.

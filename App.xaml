@@ -13,13 +13,33 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ContextMenu">
-                        <Border Margin="0,0,10,10" Padding="5" CornerRadius="9"
-                                Background="#F5262629" BorderBrush="#40FFFFFF" BorderThickness="1">
+                        <!-- Short fade + grow on open (direction-neutral: bar menus open down, Dock menus up) -->
+                        <Border x:Name="Root" Margin="0,0,10,10" Padding="5" CornerRadius="9"
+                                Background="#F5262629" BorderBrush="#40FFFFFF" BorderThickness="1"
+                                RenderTransformOrigin="0.5,0.5">
+                            <Border.RenderTransform>
+                                <ScaleTransform />
+                            </Border.RenderTransform>
                             <Border.Effect>
                                 <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.5" />
                             </Border.Effect>
                             <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Cycle" />
                         </Border>
+                        <ControlTemplate.Triggers>
+                            <EventTrigger RoutedEvent="ContextMenu.Opened">
+                                <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.12" />
+                                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="0.97" To="1" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="0.97" To="1" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </EventTrigger>
+                        </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -49,8 +69,12 @@
                             <Popup x:Name="PART_Popup" Placement="Right" HorizontalOffset="4" VerticalOffset="-6" AllowsTransparency="True"
                                    Focusable="False" PopupAnimation="None"
                                    IsOpen="{Binding IsSubmenuOpen, RelativeSource={RelativeSource TemplatedParent}}">
-                                <Border Margin="0,0,10,10" Padding="5" CornerRadius="9" MinWidth="160"
-                                        Background="#F5262629" BorderBrush="#40FFFFFF" BorderThickness="1">
+                                <Border x:Name="SubRoot" Margin="0,0,10,10" Padding="5" CornerRadius="9" MinWidth="160"
+                                        Background="#F5262629" BorderBrush="#40FFFFFF" BorderThickness="1"
+                                        RenderTransformOrigin="0,0">
+                                    <Border.RenderTransform>
+                                        <ScaleTransform />
+                                    </Border.RenderTransform>
                                     <Border.Effect>
                                         <DropShadowEffect BlurRadius="14" ShadowDepth="3" Opacity="0.5" />
                                     </Border.Effect>
@@ -61,6 +85,21 @@
                         <ControlTemplate.Triggers>
                             <Trigger Property="HasItems" Value="True">
                                 <Setter TargetName="Arrow" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsSubmenuOpen" Value="True">
+                                <Trigger.EnterActions>
+                                    <BeginStoryboard>
+                                    <Storyboard>
+                                        <DoubleAnimation Storyboard.TargetName="SubRoot" Storyboard.TargetProperty="Opacity" From="0" To="1" Duration="0:0:0.12" />
+                                        <DoubleAnimation Storyboard.TargetName="SubRoot" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleX)" From="0.97" To="1" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                        <DoubleAnimation Storyboard.TargetName="SubRoot" Storyboard.TargetProperty="(UIElement.RenderTransform).(ScaleTransform.ScaleY)" From="0.97" To="1" Duration="0:0:0.16">
+                                            <DoubleAnimation.EasingFunction><CubicEase EasingMode="EaseOut" /></DoubleAnimation.EasingFunction>
+                                        </DoubleAnimation>
+                                    </Storyboard>
+                                    </BeginStoryboard>
+                                </Trigger.EnterActions>
                             </Trigger>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="#FF0A63D9" />

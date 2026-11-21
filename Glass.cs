@@ -16,9 +16,11 @@ internal static class Glass
     /// Uses DwmExtendFrameIntoClientArea instead of AllowsTransparency, so WPF renders straight
     /// into the DWM surface on the GPU.
     /// </summary>
-    public static void MakeOverlay(Window w)
+    /// <param name="rounded">Windows 11 rounded corners and thin border (the floating menu bar).</param>
+    public static void MakeOverlay(Window w, bool rounded = false)
     {
         IntPtr h = new WindowInteropHelper(w).Handle;
+        if (rounded) { Glass.rounded.Add(h); w.Closed += (_, _) => Glass.rounded.Remove(h); }
         var src = HwndSource.FromHwnd(h);
         src.CompositionTarget.BackgroundColor = Colors.Transparent;
         ApplyFrame(h);
@@ -40,6 +42,8 @@ internal static class Glass
         });
     }
 
+    private static readonly HashSet<IntPtr> rounded = new();
+
     private static void ApplyFrame(IntPtr h)
     {
         var m = new Native.MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
@@ -47,10 +51,12 @@ internal static class Glass
 
         int dark = 1;
         Native.DwmSetWindowAttribute(h, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
-        int noRound = 1; // DWMWCP_DONOTROUND
-        Native.DwmSetWindowAttribute(h, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref noRound, sizeof(int));
-        int noBorder = unchecked((int)0xFFFFFFFE); // DWMWA_COLOR_NONE
-        Native.DwmSetWindowAttribute(h, Native.DWMWA_BORDER_COLOR, ref noBorder, sizeof(int));
+        bool round = rounded.Contains(h);
+        int corners = round ? 2 /* DWMWCP_ROUND */ : 1 /* DWMWCP_DONOTROUND */;
+        Native.DwmSetWindowAttribute(h, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref corners, sizeof(int));
+        // Rounded: keep DWM's hairline border (DWMWA_COLOR_DEFAULT), it outlines the pill on any wallpaper.
+        int border = unchecked((int)(round ? 0xFFFFFFFF : 0xFFFFFFFE)); // DWMWA_COLOR_DEFAULT / DWMWA_COLOR_NONE
+        Native.DwmSetWindowAttribute(h, Native.DWMWA_BORDER_COLOR, ref border, sizeof(int));
     }
 
     private static readonly Dictionary<IntPtr, uint> acrylic = new();

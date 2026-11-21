@@ -52,6 +52,7 @@ Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 |---|---|
 | `DockWindow.cs` | Dock: layout, animação (vsync, só quando algo se move), entrada, arrastar |
 | `MenuBarWindow.cs` | Barra de menu e itens de status |
+| `BarFx.cs` | Destaque animado dos itens da barra, ícones monocromáticos da bandeja, equalizador da música |
 | `Flyouts.cs` | Painéis de calendário, som, Wi-Fi e Bluetooth |
 | `ControlCenter.cs` | Central de Controle, brilho por DDC/CI (`DdcMonitor`), modo escuro (`Theme`) |
 | `Media.cs` | Música tocando (`NowPlaying`, API de mídia do Windows) e o player dos painéis |

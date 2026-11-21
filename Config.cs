@@ -49,6 +49,12 @@ internal sealed class DocaConfig
     public double MenuBarHeight { get; set; } = 28;
     public bool MenuBarAllScreens { get; set; } = true;
     public double MenuBarOpacity { get; set; } = 0.55;
+    /// <summary>"Vidro" (light acrylic), "Transparente" (no background, like macOS Tahoe) or "Sólido" (dark, MenuBarOpacity).</summary>
+    public string MenuBarStyle { get; set; } = "Vidro";
+    /// <summary>Bar detached from the screen edge, with rounded corners.</summary>
+    public bool MenuBarFloating { get; set; } = false;
+    /// <summary>Tray icons drawn as white silhouettes, like macOS menu bar icons.</summary>
+    public bool TrayIconsMonochrome { get; set; } = true;
     /// <summary>In fullscreen (video), resting the pointer on the top edge shows the bar over it, like macOS.</summary>
     public bool MenuBarRevealInFullscreen { get; set; } = true;
     /// <summary>Same for the Dock at the bottom edge.</summary>

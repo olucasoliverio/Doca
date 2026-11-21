@@ -6,6 +6,8 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Shapes;
 using System.Windows.Threading;
 
@@ -79,11 +81,13 @@ internal static class Ui
 internal sealed class MenuBarWindow : Window
 {
     private const string IconFont = "Segoe Fluent Icons, Segoe MDL2 Assets";
-    private static readonly Brush hoverBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0xFF, 0xFF, 0xFF)));
+    /// <summary>Gap around the bar when it floats (DIP).</summary>
+    private const double FloatGap = 6;
 
     private readonly DocaConfig cfg;
     private readonly WindowTracker tracker;
-    private readonly TextBlock appName = new() { FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center };
+    // Display optical size: the bold app name reads closer to SF Pro's than the Text cut does.
+    private readonly TextBlock appName = new() { FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center };
     private readonly TextBlock clock = new() { VerticalAlignment = VerticalAlignment.Center };
     private readonly StackPanel appMenus = new() { Orientation = Orientation.Horizontal };
     private int appMenusVersion;
@@ -92,7 +96,10 @@ internal sealed class MenuBarWindow : Window
     private readonly TextBlock batteryPct = new() { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(5, 0, 0, 0), FontSize = 12 };
     private readonly Border batteryItem, volumeItem, wifiItem, bluetoothItem;
     private readonly TextBlock bluetooth = Glyph("");
-    private readonly TextBlock nowPlayingGlyph = new() { Text = "", FontFamily = new FontFamily(IconFont), FontSize = 13, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) };
+    private readonly TextBlock nowPlayingGlyph = new() { Text = "", FontFamily = new FontFamily(IconFont), FontSize = 13, VerticalAlignment = VerticalAlignment.Center };
+    /// <summary>Album art, 16 px with rounded corners; the music glyph stands in while there is none.</summary>
+    private readonly Border nowPlayingArt = new() { Width = 16, Height = 16, CornerRadius = new CornerRadius(3.5), VerticalAlignment = VerticalAlignment.Center };
+    private readonly Equalizer equalizer = new() { Margin = new Thickness(7, 0, 0, 0) };
     private readonly TextBlock nowPlayingTitle = new() { MaxWidth = 170, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
     private readonly Border nowPlayingItem;
     private readonly DispatcherTimer clockTimer = new(), statusTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
@@ -110,7 +117,7 @@ internal sealed class MenuBarWindow : Window
 
     private static TextBlock Glyph(string g) => new()
     {
-        Text = g, FontFamily = new FontFamily(IconFont), FontSize = 15, VerticalAlignment = VerticalAlignment.Center,
+        Text = g, FontFamily = new FontFamily(IconFont), FontSize = 14, VerticalAlignment = VerticalAlignment.Center,
     };
 
     public MenuBarWindow(DocaConfig cfg, WindowTracker tracker, IntPtr monitor)
@@ -142,7 +149,7 @@ internal sealed class MenuBarWindow : Window
         };
 
         var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(10, 0, 0, 0) };
-        left.Children.Add(Item(logo, ShowSystemMenu, "Menu do sistema"));
+        left.Children.Add(Item(logo, ShowSystemMenu, "Menu do sistema", pad: 10));
         left.Children.Add(Item(appName, ShowAppMenu, null));
         left.Children.Add(appMenus);
 
@@ -153,29 +160,46 @@ internal sealed class MenuBarWindow : Window
 
         var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 10, 0) };
         batteryItem = Item(batteryPanel, _ => Shell.WinKey(0x41), null);
-        wifiItem = Item(wifi, b => Flyout.Toggle("wifi", b, () => new WifiFlyout(cfg)), null);
-        bluetoothItem = Item(bluetooth, b => Flyout.Toggle("bluetooth", b, () => new BluetoothFlyout(cfg)), null);
+        wifiItem = Item(wifi, b => Flyout.Toggle("wifi", b, () => new WifiFlyout(cfg)), null, pad: 7);
+        bluetoothItem = Item(bluetooth, b => Flyout.Toggle("bluetooth", b, () => new BluetoothFlyout(cfg)), null, pad: 7);
         bluetoothItem.Visibility = Visibility.Collapsed; // until we know there is an adapter
-        volumeItem = Item(volume, b => Flyout.Toggle("sound", b, () => new SoundFlyout(cfg)), null);
+        volumeItem = Item(volume, b => Flyout.Toggle("sound", b, () => new SoundFlyout(cfg)), null, pad: 7);
         volumeItem.MouseWheel += (_, e) => { Audio.Nudge(e.Delta > 0 ? 0.02f : -0.02f); UpdateVolume(); };
         // Right-click opens the panel like everywhere else in the bar; the middle button mutes.
         volumeItem.MouseUp += (_, e) => { if (e.ChangedButton == MouseButton.Middle) { Audio.ToggleMute(); UpdateVolume(); } };
-        TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(hoverBrush, cfg) : null;
+        TrayIconsPanel? tray = cfg.ShowTrayIcons ? new TrayIconsPanel(cfg) : null;
         if (tray != null) right.Children.Add(tray);
         var nowPlayingPanel = new StackPanel { Orientation = Orientation.Horizontal };
-        nowPlayingPanel.Children.Add(nowPlayingGlyph);
+        var artSlot = new Grid { Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
+        artSlot.Children.Add(nowPlayingGlyph);
+        artSlot.Children.Add(nowPlayingArt);
+        nowPlayingPanel.Children.Add(artSlot);
         nowPlayingPanel.Children.Add(nowPlayingTitle);
+        nowPlayingPanel.Children.Add(equalizer);
         nowPlayingItem = Item(nowPlayingPanel, b => Flyout.Toggle("media", b, () => new MediaFlyout(cfg)), null);
         right.Children.Add(nowPlayingItem);
-        right.Children.Add(Item(Glyph(""), _ => SpotlightWindow.Toggle(cfg), "Spotlight (Alt+Espaço)"));
+        right.Children.Add(Item(Glyph(""), _ => SpotlightWindow.Toggle(cfg), "Spotlight (Alt+Espaço)", pad: 7));
         right.Children.Add(batteryItem);
         right.Children.Add(bluetoothItem);
         right.Children.Add(wifiItem);
         right.Children.Add(volumeItem);
-        right.Children.Add(Item(Glyph(""), b => Flyout.Toggle("control", b, () => new ControlCenterFlyout(cfg)), "Central de Controle"));
-        right.Children.Add(Item(clock, b => Flyout.Toggle("calendar", b, () => new CalendarFlyout(cfg)), null));
+        right.Children.Add(Item(Glyph(""), b => Flyout.Toggle("control", b, () => new ControlCenterFlyout(cfg)), "Central de Controle", pad: 7));
+        right.Children.Add(Item(clock, b => Flyout.Toggle("calendar", b, () => new CalendarFlyout(cfg)), null, pad: 10));
 
         var root = new Grid();
+        if (cfg.MenuBarStyle == "Transparente")
+        {
+            // No background at all, like macOS Tahoe: a faint fade from the top edge keeps the text readable
+            // on bright wallpapers without reading as a bar.
+            root.Background = Frozen(new LinearGradientBrush(Color.FromArgb(0x38, 0, 0, 0), Color.FromArgb(0, 0, 0, 0), 90));
+        }
+        if (cfg.MenuBarStyle != "Sólido")
+        {
+            // Light/no tint lets the wallpaper through, so white text needs a soft shadow to stay legible.
+            var shadow = Frozen(new DropShadowEffect { ShadowDepth = 0.5, Direction = 270, BlurRadius = 5, Opacity = 0.45, Color = Colors.Black });
+            left.Effect = shadow;
+            right.Effect = shadow;
+        }
         root.Children.Add(left);
         root.Children.Add(right);
         Content = root;
@@ -194,9 +218,18 @@ internal sealed class MenuBarWindow : Window
 
         SourceInitialized += (_, _) =>
         {
-            Glass.MakeOverlay(this);
-            uint alpha = (uint)Math.Clamp(cfg.MenuBarOpacity * 255, 1, 255);
-            Glass.EnableAcrylic(this, (alpha << 24) | 0x141414);
+            Glass.MakeOverlay(this, rounded: cfg.MenuBarFloating);
+            switch (cfg.MenuBarStyle)
+            {
+                case "Transparente": break; // the DWM surface stays fully transparent
+                case "Sólido":
+                    uint alpha = (uint)Math.Clamp(cfg.MenuBarOpacity * 255, 1, 255);
+                    Glass.EnableAcrylic(this, (alpha << 24) | 0x141414);
+                    break;
+                default: // Vidro: a light veil over the blur keeps the wallpaper's color
+                    Glass.EnableAcrylic(this, 0x40000000 | 0x1C1C1C);
+                    break;
+            }
             appBar = new AppBar(this, Native.ABE_TOP);
             appBar.ExplorerRestarted += Taskbar.EnsureHidden;
             Reposition();
@@ -243,9 +276,12 @@ internal sealed class MenuBarWindow : Window
     {
         bool show = cfg.ShowNowPlaying && NowPlaying.HasSession;
         nowPlayingItem.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        if (!show) return;
+        if (!show) { equalizer.Playing = false; return; }
         nowPlayingTitle.Text = NowPlaying.Title;
         nowPlayingItem.Opacity = NowPlaying.Playing ? 1 : 0.6;
+        nowPlayingArt.Background = NowPlaying.Art != null ? new ImageBrush(NowPlaying.Art) { Stretch = Stretch.UniformToFill } : null;
+        nowPlayingGlyph.Visibility = NowPlaying.Art != null ? Visibility.Hidden : Visibility.Visible;
+        equalizer.Playing = NowPlaying.Playing;
         nowPlayingItem.ToolTip = NowPlaying.Artist.Length > 0 ? $"{NowPlaying.Title} — {NowPlaying.Artist}" : NowPlaying.Title;
     }
 
@@ -256,9 +292,22 @@ internal sealed class MenuBarWindow : Window
         if (closed) return;
         var m = Native.MonitorInfo(monitor);
         int h = (int)Math.Round(cfg.MenuBarHeight * m.Scale);
+        if (cfg.MenuBarFloating)
+        {
+            // The window is the floating pill; the reserved strip also covers the gaps above and below it,
+            // so maximized windows keep the same distance from the bar as the bar from the screen edge.
+            int gap = (int)Math.Round(FloatGap * m.Scale);
+            Glass.Place(this, m.Bounds.Left + gap, m.Bounds.Top + gap, m.Bounds.Width - 2 * gap, h);
+            appBar?.Reserve(m.Bounds, h + 2 * gap);
+            return;
+        }
         Glass.Place(this, m.Bounds.Left, m.Bounds.Top, m.Bounds.Width, h);
         appBar?.Reserve(m.Bounds, h);
     }
+
+    /// <summary>Bottom edge of the bar in screen pixels (below the floating gap when it floats).</summary>
+    private int BarBottom(Native.RECT bounds, double scale) =>
+        bounds.Top + (int)Math.Round((cfg.MenuBarHeight + (cfg.MenuBarFloating ? FloatGap : 0)) * scale);
 
     /// <summary>Visible on its monitor unless something is fullscreen there (video, game).</summary>
     private void UpdateVisibility()
@@ -305,7 +354,7 @@ internal sealed class MenuBarWindow : Window
             return;
         }
 
-        int barBottom = b.Top + (int)Math.Round(cfg.MenuBarHeight * Native.MonitorInfo(monitor).Scale);
+        int barBottom = BarBottom(b, Native.MonitorInfo(monitor).Scale);
         bool over = onMonitor && p.Y < barBottom + 6;
         bool busy = menusOpen > 0 || Flyout.IsOpen || Native.FindWindow("#32768", null) != IntPtr.Zero; // #32768: a Win32 menu
         revealTicks = over || busy ? 0 : revealTicks + 1;
@@ -316,20 +365,26 @@ internal sealed class MenuBarWindow : Window
         else { revealTimer.Stop(); Reposition(); }
     }
 
-    private Border Item(UIElement content, Action<Border> click, string? tip)
+    /// <param name="pad">Side padding: icons sit tighter together than text items, as on the Mac.</param>
+    private Border Item(UIElement content, Action<Border> click, string? tip, double pad = 8)
     {
         var b = new Border
         {
             Child = content,
-            Padding = new Thickness(9, 0, 9, 0),
+            Padding = new Thickness(pad, 0, pad, 0),
             Margin = new Thickness(1, 3, 1, 3),
             CornerRadius = new CornerRadius(6),
-            Background = Brushes.Transparent,
             ToolTip = tip,
         };
-        b.MouseEnter += (_, _) => b.Background = hoverBrush;
-        b.MouseLeave += (_, _) => { if (b.ContextMenu?.IsOpen != true) b.Background = Brushes.Transparent; };
-        b.MouseLeftButtonUp += (_, _) => click(b);
+        BarFx.Prepare(b);
+        b.MouseEnter += (_, _) => BarFx.Hot(b, true);
+        b.MouseLeave += (_, _) => { if (b.ContextMenu?.IsOpen != true) BarFx.Hot(b, false); };
+        b.MouseLeftButtonDown += (_, _) => BarFx.Pressed(b);
+        b.MouseLeftButtonUp += (_, _) =>
+        {
+            click(b);
+            BarFx.Hot(b, b.IsMouseOver || b.ContextMenu?.IsOpen == true);
+        };
         // On the Mac a right (Control) click on any menu bar item opens the same menu as a left click.
         b.MouseRightButtonUp += (_, e) => { e.Handled = true; click(b); };
         // Open() leaves the last menu in b.ContextMenu; WPF would reopen that stale one on right-click too.
@@ -343,8 +398,8 @@ internal sealed class MenuBarWindow : Window
         m.PlacementTarget = anchor;
         m.Placement = PlacementMode.Bottom;
         m.VerticalOffset = 3;
-        m.Opened += (_, _) => { menusOpen++; anchor.Background = hoverBrush; };
-        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); if (!anchor.IsMouseOver) anchor.Background = Brushes.Transparent; };
+        m.Opened += (_, _) => { menusOpen++; BarFx.Hot(anchor, true); };
+        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); if (!anchor.IsMouseOver) BarFx.Hot(anchor, false); };
         Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }
