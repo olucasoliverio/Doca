@@ -303,7 +303,7 @@ internal sealed class IslandWindow : Window
         if (standalone)
         {
             // No bar, so no ⊞ menu: right-click the island for it.
-            MouseRightButtonUp += (_, e) => { e.Handled = true; ShowSystemMenu(); };
+            MouseRightButtonUp += (_, e) => { e.Handled = true; ShowSystemMenu(null); };
             clockTimer.Tick += (_, _) => UpdateClock();
             tracker.FullscreenChanged += UpdateVisibility;
             UpdateClock();
@@ -380,12 +380,19 @@ internal sealed class IslandWindow : Window
         clockTimer.Start();
     }
 
-    private void ShowSystemMenu()
+    /// <param name="button">The panel's ⋯ button (menu hangs under it, right edges aligned), or null for a
+    /// right-click on the island (menu at the pointer, like any context menu).</param>
+    private void ShowSystemMenu(FrameworkElement? button = null)
     {
         var m = MenuBarWindow.SystemMenu(cfg);
-        m.PlacementTarget = host;
-        m.Placement = PlacementMode.Bottom;
-        m.VerticalOffset = 4;
+        if (button != null)
+        {
+            m.PlacementTarget = button;
+            m.Placement = PlacementMode.Custom;
+            m.CustomPopupPlacementCallback = (popup, target, _) =>
+                new[] { new CustomPopupPlacement(new Point(target.Width - popup.Width, target.Height + 6), PopupPrimaryAxis.Horizontal) };
+        }
+        else m.Placement = PlacementMode.MousePoint;
         m.Opened += (_, _) => menusOpen++;
         m.Closed += (_, _) => menusOpen = Math.Max(0, menusOpen - 1);
         Ui.CloseOnOutsideClick(m);
@@ -855,7 +862,7 @@ internal sealed class IslandWindow : Window
         private Flyout? lent;
         private int index = -1;
 
-        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action systemMenu)
+        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action<FrameworkElement> systemMenu)
         {
             this.cfg = cfg;
             this.anchor = anchor;
@@ -900,7 +907,7 @@ internal sealed class IslandWindow : Window
             header.Children.Add(row);
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             // Spotlight lost its bar button in this mode; it lives here (and on Alt+Espaço).
-            buttons.Children.Add(RoundButton(IslandGlyphs.Search, "Spotlight (Alt+Espaço)", () => { dismiss(); SpotlightWindow.Toggle(cfg); }));
+            buttons.Children.Add(RoundButton(IslandGlyphs.Search, "Spotlight (Alt+Espaço)", _ => { dismiss(); SpotlightWindow.Toggle(cfg); }));
             buttons.Children.Add(RoundButton(IslandGlyphs.More, "Menu do sistema", systemMenu));
             header.Children.Add(buttons);
             Children.Add(header);
@@ -918,13 +925,13 @@ internal sealed class IslandWindow : Window
             Loaded += (_, _) => { if (index < 0) Select(lastTab >= 0 && !(lastTab == 0 && !NowPlaying.HasSession) ? lastTab : NowPlaying.HasSession ? 0 : 1); };
         }
 
-        private static Border RoundButton(string glyph, string tip, Action click)
+        private static Border RoundButton(string glyph, string tip, Action<FrameworkElement> click)
         {
             var b = new Border { Child = Glyph(glyph, 14), Width = 32, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(4, 0, 0, 0), Cursor = Cursors.Hand, ToolTip = tip };
             BarFx.Prepare(b);
             b.MouseEnter += (_, _) => BarFx.Hot(b, true);
             b.MouseLeave += (_, _) => BarFx.Hot(b, false);
-            b.MouseLeftButtonUp += (_, e) => { e.Handled = true; click(); };
+            b.MouseLeftButtonUp += (_, e) => { e.Handled = true; click(b); };
             return b;
         }
 
