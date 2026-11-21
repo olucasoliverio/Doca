@@ -821,9 +821,9 @@ internal sealed class IslandWindow : Window
     };
 
     /// <summary>
-    /// Resting pill, two looks. Music playing: round cover on the left and a waveform in the album's color on the
-    /// right, nothing in between (like iOS). Otherwise: the clock alone in the middle, with what is going on next
-    /// to it (camera/microphone dots, the paused song's cover, timer, download). The pill is as wide as that.
+    /// Resting pill: the clock in the middle with what is going on next to it (camera/microphone dots, the paused
+    /// song's cover, timer, download). While music plays, a round cover on the left and a waveform in the album's
+    /// color on the right frame it. The pill is as wide as that.
     /// </summary>
     private sealed class RestView : Grid
     {
@@ -902,7 +902,8 @@ internal sealed class IslandWindow : Window
             // Paused: the cover stays as a small, dim reminder next to the clock (a click opens the player).
             pausedArt.Visibility = music && !play ? Visibility.Visible : Visibility.Collapsed;
             if (music && !play) SetArt(pausedArt, null);
-            clock.Visibility = withClock && !play ? Visibility.Visible : Visibility.Collapsed;
+            // Always the time in the middle: unlike the iPhone there is no camera there, it would be dead space.
+            clock.Visibility = withClock ? Visibility.Visible : Visibility.Collapsed;
 
             bool privacy = Island.Config?.IslandPrivacy != false;
             camDot.Visibility = privacy && PrivacyWatch.CamApp != null ? Visibility.Visible : Visibility.Collapsed;
@@ -929,7 +930,7 @@ internal sealed class IslandWindow : Window
             // Rounded up in steps so the pill doesn't twitch as digits change width.
             double mid = Math.Ceiling(center.DesiredSize.Width / 8) * 8;
             DesiredWidth = play
-                ? Math.Round(190 * scale) + (mid > 0 ? mid + 16 : 0)
+                ? Math.Max(Math.Round(190 * scale), mid + 2 * Math.Round(52 * scale)) // cover and waveform on the sides
                 : Math.Max(Math.Round(112 * scale), mid + Math.Round(52 * scale));
 
             // Switching between the two looks: the new one comes into focus.
