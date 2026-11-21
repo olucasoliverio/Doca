@@ -7,6 +7,7 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using System.Windows.Media.Effects;
 using System.Windows.Threading;
 using Windows.Devices.Bluetooth;
 using Windows.Devices.Enumeration;
@@ -166,7 +167,9 @@ internal static class CapsLockWatch
 /// </summary>
 internal sealed class IslandWindow : Window
 {
-    private const double MaxW = 440, MaxH = 580; // window size (DIP); the pill lives inside it
+    private const double MaxW = 480, MaxH = 580; // window size (DIP); the notch lives inside it
+    /// <summary>Bottom corner radius of the open panel (smaller shapes use half their height: a pill).</summary>
+    private const double Radius = 42;
 
     [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
@@ -177,15 +180,16 @@ internal sealed class IslandWindow : Window
     private readonly IntPtr monitor;
     private readonly bool standalone;
     private readonly double inset;
-    private readonly Border pill = new() { Background = Brushes.Black, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed };
+    // A notch, not a floating pill: square top glued to the screen edge, flared "shoulders" into the edge and
+    // squircle bottom corners. Drawn as one path in window coordinates; the content is clipped to the body.
+    private readonly System.Windows.Shapes.Path pill = new() { Fill = Brushes.Black, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
     private readonly Grid host = new() { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top };
-    private readonly RectangleGeometry clip = new();
     private IntPtr hwnd;
     private double scale = 1;
 
     // Spring state: current size, velocity, target.
     private double w, h, vw, vh, tw, th;
-    private bool animating, hideAtEnd;
+    private bool animating, hideAtEnd, growing;
     private TimeSpan lastFrame;
 
     private readonly RestView rest;
@@ -205,10 +209,10 @@ internal sealed class IslandWindow : Window
         leaveTimer = new() { Interval = TimeSpan.FromMilliseconds(600) }, clockTimer = new();
 
     // Standalone: capped so a tall bar setting doesn't make a chunky pill (iPhone's is slim).
-    private double Collapsed => standalone ? Math.Clamp(cfg.MenuBarHeight - 2, 22, 30) : Math.Max(16, cfg.MenuBarHeight - 6);
+    private double Collapsed => standalone ? Math.Clamp(cfg.MenuBarHeight, 24, 32) : Math.Max(16, cfg.MenuBarHeight - 4);
 
     /// <summary>Height of the strip kept free at the top (standalone, IslandReserveTop).</summary>
-    private double Strip => Collapsed + 2 * inset;
+    private double Strip => Collapsed + inset;
 
     /// <param name="bar">The menu bar this island sits on, or null for the standalone island.</param>
     public IslandWindow(DocaConfig cfg, IntPtr monitor, WindowTracker tracker, Window? bar = null)
@@ -218,7 +222,7 @@ internal sealed class IslandWindow : Window
         this.tracker = tracker;
         this.monitor = monitor;
         standalone = bar == null;
-        inset = 3;
+        inset = 0; // glued to the top edge
         rest = new RestView(standalone);
         Title = "Doca Island";
         WindowStyle = WindowStyle.None;
@@ -238,7 +242,6 @@ internal sealed class IslandWindow : Window
         UseLayoutRounding = true;
 
         pill.Margin = host.Margin = new Thickness(0, inset, 0, 0);
-        host.Clip = clip;
         // Content whose height changes by itself (panel tabs, data loaded later): the pill follows.
         host.SizeChanged += (_, _) =>
         {
@@ -380,7 +383,7 @@ internal sealed class IslandWindow : Window
     private void ShowSystemMenu()
     {
         var m = MenuBarWindow.SystemMenu(cfg);
-        m.PlacementTarget = pill;
+        m.PlacementTarget = host;
         m.Placement = PlacementMode.Bottom;
         m.VerticalOffset = 4;
         m.Opened += (_, _) => menusOpen++;
@@ -452,8 +455,8 @@ internal sealed class IslandWindow : Window
 
         if (hovering && standalone)
         {
-            dashboard ??= new Dashboard(cfg, pill, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu);
-            Show(dashboard, 432, null);
+            dashboard ??= new Dashboard(cfg, host, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu);
+            Show(dashboard, 440, null);
         }
         else if (hovering && NowPlaying.HasSession)
         {
@@ -475,7 +478,8 @@ internal sealed class IslandWindow : Window
         else if (standalone || hasMusic)
         {
             rest.Update(cfg.ShowNowPlaying);
-            double width = !standalone ? 168 : hasMusic ? 232 : cfg.ClockShowSeconds ? 118 : 100;
+            // A notch reads as one when it is clearly wider than tall.
+            double width = !standalone ? 168 : hasMusic ? 250 : cfg.ClockShowSeconds ? 160 : 140;
             // Pointer on it (and it opens on click): a small stretch, like a button lifting.
             if (pointerIn && CanExpand) width += 14;
             Show(rest, width, Collapsed);
@@ -491,9 +495,9 @@ internal sealed class IslandWindow : Window
             if (current == null && !animating) return;
             current = null;
             host.Children.Clear();
-            // Shrink into a small pill, then vanish.
+            // Shrink back up into the top edge, then vanish.
             hideAtEnd = true;
-            AnimateTo(Collapsed * 2, Collapsed);
+            AnimateTo(Collapsed * 2, 0);
             return;
         }
         hideAtEnd = false;
@@ -503,18 +507,34 @@ internal sealed class IslandWindow : Window
             host.Children.Clear();
             host.Children.Add(view);
             current = view;
-            // New content fades in while the pill reshapes around it.
-            view.Opacity = 0;
-            view.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(170)) { BeginTime = TimeSpan.FromMilliseconds(70) });
+            // New content comes into focus while the notch reshapes around it.
+            FadeIn(view, 60);
         }
         host.Width = width;
         if (pill.Visibility != Visibility.Visible)
         {
-            // Appear from a small pill in the middle.
+            // Drop down out of the top edge.
             pill.Visibility = Visibility.Visible;
-            w = Collapsed * 2; h = Collapsed; vw = vh = 0;
+            w = Collapsed * 2; h = 0; vw = vh = 0;
         }
         AnimateTo(width, height ?? Measure(view, width));
+    }
+
+    /// <summary>Content appears out of focus and sharpens (alpha 0→1, blur 16→0, 250 ms ease-out).</summary>
+    internal static void FadeIn(UIElement view, double delayMs = 0)
+    {
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        var span = TimeSpan.FromMilliseconds(250);
+        var begin = TimeSpan.FromMilliseconds(delayMs);
+        var blur = new BlurEffect { Radius = 16, KernelType = KernelType.Gaussian };
+        view.Effect = blur;
+        view.Opacity = 0;
+        var fade = new DoubleAnimation(1, span) { BeginTime = begin, EasingFunction = ease };
+        var sharpen = new DoubleAnimation(0, span) { BeginTime = begin, EasingFunction = ease };
+        // An effect makes WPF render the element through an offscreen surface: drop it once sharp.
+        sharpen.Completed += (_, _) => { if (view.Effect == blur) view.Effect = null; };
+        view.BeginAnimation(OpacityProperty, fade);
+        blur.BeginAnimation(BlurEffect.RadiusProperty, sharpen);
     }
 
     private double Measure(FrameworkElement view, double width)
@@ -531,6 +551,8 @@ internal sealed class IslandWindow : Window
     {
         tw = width;
         th = Math.Min(height, MaxH - inset);
+        // Opening is springy, closing settles quickly (bigger target = opening).
+        growing = tw * th >= w * h;
         // Region covers both shapes while moving; trimmed to the final shape at the end.
         SetRegion(Math.Max(w, tw), Math.Max(h, th));
         if (animating) return;
@@ -546,8 +568,8 @@ internal sealed class IslandWindow : Window
         double dt = Math.Clamp((now - lastFrame).TotalSeconds, 0, 1 / 30.0);
         lastFrame = now;
         if (dt == 0) return;
-        Step(ref w, ref vw, tw, dt);
-        Step(ref h, ref vh, th, dt);
+        Step(ref w, ref vw, tw, dt, growing);
+        Step(ref h, ref vh, th, dt, growing);
         bool done = Math.Abs(w - tw) < 0.3 && Math.Abs(h - th) < 0.3 && Math.Abs(vw) < 2 && Math.Abs(vh) < 2;
         if (done)
         {
@@ -565,10 +587,14 @@ internal sealed class IslandWindow : Window
         Apply();
     }
 
-    /// <summary>Slightly under-damped spring (damping ratio ~0.75): a small overshoot, like iOS.</summary>
-    private static void Step(ref double x, ref double v, double target, double dt)
+    /// <summary>
+    /// Damped spring. Opening: 2.5 Hz, damping 0.6 (a visible bounce); closing: 3 Hz, damping 0.9 (settles
+    /// without wobbling), the feel of iOS's Dynamic Island.
+    /// </summary>
+    private static void Step(ref double x, ref double v, double target, double dt, bool open)
     {
-        const double k = 420, c = 31;
+        double f = open ? 2.5 : 3, z = open ? 0.6 : 0.9, wn = 2 * Math.PI * f;
+        double k = wn * wn, c = 2 * z * wn;
         for (int i = 0; i < 4; i++)
         {
             double d = dt / 4;
@@ -577,17 +603,54 @@ internal sealed class IslandWindow : Window
         }
     }
 
+    /// <summary>Shoulder width: the concave curve that blends the notch into the top edge.</summary>
+    private static double Shoulder(double r) => Math.Clamp(r / 4, 5, 11);
+
     private void Apply()
     {
         double pw = Math.Max(0, w), ph = Math.Max(0, h);
-        double r = Math.Min(ph / 2, 22);
-        pill.Width = pw;
-        pill.Height = ph;
-        pill.CornerRadius = new CornerRadius(r);
-        // The content keeps its final layout; the clip reveals it as the pill grows.
+        double r = Math.Min(Radius, Math.Min(pw, ph) / 2);
+        double cx = MaxW / 2;
+        pill.Data = Notch(cx - pw / 2, cx + pw / 2, ph, r, Shoulder(r));
+        // The content keeps its final layout; the clip reveals it as the notch grows.
         double hw = double.IsNaN(host.Width) ? pw : host.Width;
-        clip.Rect = new Rect((hw - pw) / 2, 0, pw, ph);
-        clip.RadiusX = clip.RadiusY = r;
+        host.Clip = Notch((hw - pw) / 2, (hw + pw) / 2, ph, r, 0);
+    }
+
+    /// <summary>
+    /// Square top at y=0, flared shoulders of width s, and squircle bottom corners (superellipse, exponent 2.8,
+    /// a bit squarer than a circle, like Apple's "continuous" corners).
+    /// </summary>
+    private static Geometry Notch(double l, double r, double b, double R, double s)
+    {
+        var g = new StreamGeometry();
+        if (r - l > 0 && b > 0)
+        {
+            using var c = g.Open();
+            double fillet = Math.Min(s, b / 2);
+            c.BeginFigure(new Point(l - s, 0), true, true);
+            c.LineTo(new Point(r + s, 0), false, false);
+            if (s > 0) c.BezierTo(new Point(r + s / 8, 0), new Point(r, fillet / 2), new Point(r, fillet), false, true);
+            Corner(c, r - R, b - R, R, 0);
+            Corner(c, l + R, b - R, R, Math.PI / 2);
+            c.LineTo(new Point(l, fillet), false, true);
+            if (s > 0) c.BezierTo(new Point(l, fillet / 2), new Point(l - s / 8, 0), new Point(l - s, 0), false, true);
+        }
+        g.Freeze();
+        return g;
+    }
+
+    private static void Corner(StreamGeometryContext c, double cx, double cy, double R, double a0)
+    {
+        const int n = 12;
+        const double p = 2 / 2.8;
+        var pts = new Point[n + 1];
+        for (int i = 0; i <= n; i++)
+        {
+            double a = a0 + Math.PI / 2 * i / n, cos = Math.Cos(a), sin = Math.Sin(a);
+            pts[i] = new Point(cx + Math.Sign(cos) * Math.Pow(Math.Abs(cos), p) * R, cy + Math.Sign(sin) * Math.Pow(Math.Abs(sin), p) * R);
+        }
+        c.PolyLineTo(pts, true, true);
     }
 
     private void SetRegion(double width, double height)
@@ -595,7 +658,9 @@ internal sealed class IslandWindow : Window
         if (hwnd == IntPtr.Zero) return;
         if (width <= 0 || height <= 0) { SetWindowRgn(hwnd, CreateRectRgn(0, 0, 0, 0), true); return; }
         int full = (int)Math.Round(MaxW * scale);
-        int pw = (int)Math.Ceiling(width * scale), ph = (int)Math.Ceiling(height * scale), top = (int)Math.Round(inset * scale);
+        // Shoulders included.
+        double s = Shoulder(Math.Min(Radius, Math.Min(width, height) / 2));
+        int pw = (int)Math.Ceiling((width + 2 * s) * scale), ph = (int)Math.Ceiling(height * scale), top = (int)Math.Round(inset * scale);
         int left = (full - pw) / 2;
         // The window owns the region afterwards; no DeleteObject.
         SetWindowRgn(hwnd, CreateRectRgn(left, top, left + pw, top + ph), true);
@@ -632,17 +697,21 @@ internal sealed class IslandWindow : Window
         private readonly TextBlock note = Glyph(IslandGlyphs.Music, 9);
         private readonly Equalizer eq = new() { HorizontalAlignment = HorizontalAlignment.Right };
         private readonly TextBlock paused = Glyph(IslandGlyphs.Pause, 10);
-        private readonly TextBlock clock = new() { FontWeight = FontWeights.SemiBold, FontSize = 13.5, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock clock = new()
+        {
+            FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, FontSize = 14,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+        };
 
         public RestView(bool withClock)
         {
             art.HorizontalAlignment = HorizontalAlignment.Left;
-            art.Margin = new Thickness(6, 0, 0, 0);
+            art.Margin = new Thickness(12, 0, 0, 0);
             art.Child = note;
             paused.HorizontalAlignment = HorizontalAlignment.Right;
-            paused.Margin = new Thickness(0, 0, 12, 0);
+            paused.Margin = new Thickness(0, 0, 16, 0);
             paused.Opacity = 0.6;
-            eq.Margin = new Thickness(0, 0, 12, 0);
+            eq.Margin = new Thickness(0, 0, 16, 0);
             Children.Add(art);
             Children.Add(eq);
             Children.Add(paused);
@@ -791,21 +860,36 @@ internal sealed class IslandWindow : Window
             this.cfg = cfg;
             this.anchor = anchor;
             this.dismiss = dismiss;
-            Margin = new Thickness(14, 10, 14, 14);
+            // Room for the big squircle corners at the bottom.
+            Margin = new Thickness(18, 10, 18, 20);
             // Fluent dark styles for the borrowed panels' sliders and buttons, scoped to this panel (a window-wide
             // ThemeMode would also give the island window a backdrop).
             try { Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Dark.xaml") }); }
             catch (Exception ex) { App.Log(ex); }
+            // White instead of the Windows accent blue on sliders, toggles and buttons: monochrome, like the notch.
+            var white = Frozen(new SolidColorBrush(Colors.White));
+            var whiteDim = Frozen(new SolidColorBrush(Color.FromArgb(0xE6, 0xFF, 0xFF, 0xFF)));
+            var whiteLow = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)));
+            Resources["AccentFillColorDefaultBrush"] = white;
+            Resources["AccentFillColorSecondaryBrush"] = whiteDim;
+            Resources["AccentFillColorTertiaryBrush"] = whiteLow;
+            Resources["TextOnAccentFillColorPrimaryBrush"] = Frozen(new SolidColorBrush(Colors.Black));
+            // The Fluent slider paints its value and thumb with these (aliases of the accent resolved at load).
+            Resources["SliderThumbBackground"] = white;
+            Resources["SliderThumbBackgroundPointerOver"] = whiteDim;
+            Resources["SliderThumbBackgroundPressed"] = whiteLow;
 
-            var header = new Grid { Margin = new Thickness(0, 0, 0, 10) };
+            var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
             for (int i = 0; i < tabs.Length; i++)
             {
                 int n = i;
-                var content = new StackPanel { Orientation = Orientation.Horizontal };
-                content.Children.Add(Glyph(tabs[i].glyph, 12));
-                content.Children.Add(new TextBlock { Text = tabs[i].name, FontSize = 12, Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
-                var chip = new Border { Child = content, Padding = new Thickness(8, 5, 9, 6), CornerRadius = new CornerRadius(13), Margin = new Thickness(0, 0, 2, 0), Cursor = Cursors.Hand };
+                // Icon-only tabs (name in the tooltip): a quiet toolbar instead of a row of labels.
+                var chip = new Border
+                {
+                    Child = Glyph(tabs[i].glyph, 15), Width = 38, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 4, 0),
+                    Cursor = Cursors.Hand, ToolTip = tabs[i].name,
+                };
                 BarFx.Prepare(chip);
                 chip.MouseEnter += (_, _) => { if (index != n) BarFx.Hot(chip, true); };
                 chip.MouseLeave += (_, _) => { if (index != n) BarFx.Hot(chip, false); };
@@ -836,7 +920,7 @@ internal sealed class IslandWindow : Window
 
         private static Border RoundButton(string glyph, string tip, Action click)
         {
-            var b = new Border { Child = Glyph(glyph, 12.5), Width = 28, Height = 26, CornerRadius = new CornerRadius(13), Cursor = Cursors.Hand, ToolTip = tip };
+            var b = new Border { Child = Glyph(glyph, 14), Width = 32, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(4, 0, 0, 0), Cursor = Cursors.Hand, ToolTip = tip };
             BarFx.Prepare(b);
             b.MouseEnter += (_, _) => BarFx.Hot(b, true);
             b.MouseLeave += (_, _) => BarFx.Hot(b, false);
@@ -879,9 +963,8 @@ internal sealed class IslandWindow : Window
                 case 2: content = Borrow(new ControlCenterFlyout(cfg, embedded: true)); break;
                 default: content = TrayGrid(); break;
             }
-            content.Opacity = 0;
             body.Child = content;
-            content.BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(160)));
+            FadeIn(content);
         }
 
         private FrameworkElement Borrow(Flyout f)
