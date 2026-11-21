@@ -70,6 +70,14 @@ internal sealed class DocaConfig
     public bool IslandOpenOnHover { get; set; } = false;
     /// <summary>Standalone island: keep the top strip free so maximized windows (browser tabs) never sit under it.</summary>
     public bool IslandReserveTop { get; set; } = false;
+    /// <summary>Island tab "Copiados": keeps what is copied (memory only; pinned texts in ClipboardPinned).</summary>
+    public bool IslandClipboard { get; set; } = true;
+    /// <summary>Island notices: camera/microphone in use, browser downloads.</summary>
+    public bool IslandPrivacy { get; set; } = true;
+    public bool IslandDownloads { get; set; } = true;
+    /// <summary>Files kept on the island's shelf (paths; nothing is copied).</summary>
+    public List<string> ShelfFiles { get; set; } = new();
+    public List<string> ClipboardPinned { get; set; } = new();
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;

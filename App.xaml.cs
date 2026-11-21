@@ -134,7 +134,7 @@ public partial class App : Application
             if ((cfg!.MenuBarAllScreens || m.Primary) && cfg.IslandOnly && cfg.DynamicIsland)
             {
                 // No bar: the island stands alone at the top (no reserved strip, windows keep the full height).
-                Island.Start();
+                Island.Start(cfg);
                 var i = new IslandWindow(cfg, m.Handle, tracker!);
                 if (!fs) i.Show();
                 islands.Add(i);

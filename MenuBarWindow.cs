@@ -259,7 +259,7 @@ internal sealed class MenuBarWindow : Window
             Loaded += (_, _) =>
             {
                 if (island != null) return;
-                Island.Start();
+                Island.Start(cfg);
                 island = new IslandWindow(cfg, monitor, tracker, this) { Owner = this };
                 island.Show();
             };

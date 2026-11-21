@@ -53,7 +53,8 @@ Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 | `DockWindow.cs` | Dock: layout, animação (vsync, só quando algo se move), entrada, arrastar |
 | `MenuBarWindow.cs` | Barra de menu e itens de status |
 | `BarFx.cs` | Destaque animado dos itens da barra, ícones monocromáticos da bandeja, equalizador da música |
-| `Island.cs` | Ilha dinâmica: pílula no centro da barra (música, volume, brilho, fones Bluetooth, player ao passar o mouse) |
+| `Island.cs` | Ilha dinâmica: entalhe no topo (relógio, música, avisos de volume, brilho, fones, Caps Lock) e o painel com abas |
+| `IslandExtras.cs` | Extras da ilha: prateleira de arquivos, histórico do que foi copiado, câmera/microfone em uso, downloads e timer |
 | `Flyouts.cs` | Painéis de calendário, som, Wi-Fi e Bluetooth |
 | `ControlCenter.cs` | Central de Controle, brilho por DDC/CI (`DdcMonitor`), modo escuro (`Theme`) |
 | `Media.cs` | Música tocando (`NowPlaying`, API de mídia do Windows) e o player dos painéis |

@@ -18,8 +18,12 @@ namespace Doca;
 internal abstract record IslandActivity;
 /// <summary>Volume or brightness, 0–1.</summary>
 internal sealed record LevelActivity(string Glyph, double Level, bool Muted) : IslandActivity;
-/// <summary>A named thing changing state: a Bluetooth device, Caps Lock.</summary>
-internal sealed record StatusActivity(string Glyph, string Title, string State, bool On, bool SymbolFont = false) : IslandActivity;
+/// <summary>A named thing changing state: a Bluetooth device, Caps Lock, a download, the timer.</summary>
+/// <param name="Seconds">How long it stays.</param>
+/// <param name="Click">What a click on the pill does while it shows (instead of opening the panel).</param>
+/// <param name="StateBrush">Color of the state text (default: green when On, gray otherwise).</param>
+internal sealed record StatusActivity(string Glyph, string Title, string State, bool On, bool SymbolFont = false,
+    double Seconds = 2.5, Action? Click = null, Brush? StateBrush = null) : IslandActivity;
 
 internal static class IslandGlyphs
 {
@@ -35,17 +39,24 @@ internal static class Island
     /// <summary>Raised on the UI thread.</summary>
     public static event Action<IslandActivity>? Activity;
     private static bool started;
+    public static DocaConfig? Config { get; private set; }
 
     public static void Notify(IslandActivity a) => Activity?.Invoke(a);
 
-    public static void Start()
+    public static void Start(DocaConfig cfg)
     {
+        Config = cfg;
         if (started) return;
         started = true;
         Audio.StartWatching();
         Audio.VolumeChanged += (level, muted) => Notify(new LevelActivity(IslandGlyphs.Volume(level, muted), level, muted));
         BluetoothWatch.Start();
         CapsLockWatch.Start();
+        // Each one checks its own setting when something happens, so the toggles apply without a restart.
+        Shelf.Start(cfg);
+        ClipboardHistory.Start(cfg);
+        PrivacyWatch.Start();
+        DownloadWatch.Start();
     }
 }
 
@@ -80,8 +91,9 @@ internal static class BluetoothWatch
                 {
                     if (!devices.TryGetValue(u.Id, out var known) || known.connected == c) return;
                     devices[u.Id] = (known.name, c);
-                    if (ready && known.name.Length > 0)
-                        Island.Notify(new StatusActivity(IslandGlyphs.Headphones, known.name, c ? "Conectado" : "Desconectado", c));
+                    if (!ready || known.name.Length == 0) return;
+                    Island.Notify(new StatusActivity(IslandGlyphs.Headphones, known.name, c ? "Conectado" : "Desconectado", c));
+                    if (c) ShowBattery(u.Id, known.name);
                 });
             };
             watcher.Removed += (_, u) => OnUi(() => devices.Remove(u.Id));
@@ -89,6 +101,29 @@ internal static class BluetoothWatch
             watcher.Start();
         }
         catch (Exception ex) { App.Log(ex); }
+    }
+
+    /// <summary>
+    /// The headset reports its battery a few seconds after connecting: look twice, then show "Conectado · 80%".
+    /// The endpoint id ends with the device address ("…-aa:bb:cc:dd:ee:ff").
+    /// </summary>
+    private static async void ShowBattery(string id, string name)
+    {
+        var m = System.Text.RegularExpressions.Regex.Match(id.ToLowerInvariant(), "([0-9a-f]{2}(:[0-9a-f]{2}){5})$");
+        if (!m.Success) return;
+        ulong address = Convert.ToUInt64(m.Value.Replace(":", ""), 16);
+        foreach (var wait in new[] { 2500, 5000 })
+        {
+            await Task.Delay(wait);
+            await Bluetooth.RefreshBatteryAsync();
+            var d = Bluetooth.Devices().FirstOrDefault(x => x.Address == address);
+            if (d == null || !d.Connected) return;
+            if (d.Battery is int b)
+            {
+                Island.Notify(new StatusActivity(IslandGlyphs.Headphones, name, $"Conectado · {b}%", true, Seconds: 3));
+                return;
+            }
+        }
     }
 }
 
@@ -272,7 +307,7 @@ internal sealed class IslandWindow : Window
         leaveTimer.Tick += (_, _) =>
         {
             // Stay open while the pointer is back, a slider is being dragged, or a menu/panel opened from here is up.
-            if (IsMouseOver || Mouse.Captured != null || menusOpen > 0 || Flyout.IsOpen) return;
+            if (IsMouseOver || Mouse.Captured != null || menusOpen > 0 || Flyout.IsOpen || holds > 0) return;
             leaveTimer.Stop();
             Collapse();
         };
@@ -292,7 +327,37 @@ internal sealed class IslandWindow : Window
             else Refresh();
         };
         // A click on the small pill opens it right away.
-        MouseLeftButtonUp += (_, _) => { if (!hovering && CanExpand) { hoverTimer.Stop(); Expand(); } };
+        MouseLeftButtonUp += (_, _) =>
+        {
+            if (hovering) return;
+            // A notice with an action (a finished download: show it in the folder) does that instead.
+            if (hud is StatusActivity { Click: { } act }) { act(); hudTimer.Stop(); hud = null; Refresh(); return; }
+            if (CanExpand) { hoverTimer.Stop(); Expand(); }
+        };
+        if (standalone)
+        {
+            // Files dragged onto the island: the panel opens on the shelf and keeps them.
+            AllowDrop = true;
+            DragEnter += (_, e) =>
+            {
+                if (!e.Data.GetDataPresent(DataFormats.FileDrop)) { e.Effects = DragDropEffects.None; return; }
+                e.Effects = DragDropEffects.Link;
+                leaveTimer.Stop();
+                Expand(Dashboard.ShelfTab);
+            };
+            DragOver += (_, e) =>
+            {
+                e.Effects = e.Data.GetDataPresent(DataFormats.FileDrop) ? DragDropEffects.Link : DragDropEffects.None;
+                e.Handled = true;
+                leaveTimer.Stop();
+            };
+            DragLeave += (_, _) => { if (hovering) leaveTimer.Start(); };
+            Drop += (_, e) =>
+            {
+                if (e.Data.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0 && holds == 0) Shelf.Add(files);
+                e.Handled = true;
+            };
+        }
         // Closed pill: the wheel sets the volume (the level appears in the pill), the middle button plays/pauses.
         MouseWheel += (_, e) =>
         {
@@ -312,10 +377,17 @@ internal sealed class IslandWindow : Window
 
         Island.Activity += OnActivity;
         NowPlaying.Changed += OnMedia;
+        // Pill badges: camera/microphone dots, timer countdown, download size.
+        PrivacyWatch.Changed += OnBadges;
+        IslandTimer.Changed += OnBadges;
+        DownloadWatch.Changed += OnBadges;
         Closed += (_, _) =>
         {
             Island.Activity -= OnActivity;
             NowPlaying.Changed -= OnMedia;
+            PrivacyWatch.Changed -= OnBadges;
+            IslandTimer.Changed -= OnBadges;
+            DownloadWatch.Changed -= OnBadges;
             if (standalone) tracker.FullscreenChanged -= UpdateVisibility;
             hudTimer.Stop();
             hoverTimer.Stop();
@@ -331,6 +403,15 @@ internal sealed class IslandWindow : Window
     }
 
     private bool CanExpand => standalone || NowPlaying.HasSession;
+
+    /// <summary>Something inside the panel needs it open (a file being dragged out of the shelf).</summary>
+    private int holds;
+
+    private void OnBadges()
+    {
+        // Only the resting pill shows them; it re-measures when they come and go.
+        if (current == rest && !hovering && hud == null && !trackHud) Refresh();
+    }
 
     public void ReleaseAppBar() => appBar?.Release();
 
@@ -405,8 +486,10 @@ internal sealed class IslandWindow : Window
 
     #region State
 
-    private void Expand()
+    /// <param name="tab">Panel tab to show (files dragged in: the shelf).</param>
+    private void Expand(int? tab = null)
     {
+        if (tab is int t) { if (dashboard != null) dashboard.SelectTab(t); else Dashboard.Preselect = t; }
         // Open until the pointer leaves or a click lands outside Doca (also when opened by a click or --island,
         // where the pointer may never come in).
         outsideClicks ??= Ui.OnOutsideClick(() => { leaveTimer.Stop(); Collapse(); });
@@ -431,7 +514,7 @@ internal sealed class IslandWindow : Window
         if (hovering) return; // the panel is open: don't cover it
         hud = a;
         trackHud = false;
-        hudTimer.Interval = TimeSpan.FromSeconds(a is StatusActivity ? 2.5 : 1.6);
+        hudTimer.Interval = TimeSpan.FromSeconds(a is StatusActivity s ? s.Seconds : 1.6);
         hudTimer.Stop();
         hudTimer.Start();
         Refresh();
@@ -462,11 +545,13 @@ internal sealed class IslandWindow : Window
         bool hasMusic = cfg.ShowNowPlaying && NowPlaying.HasSession;
         if (!hovering && dashboard != null) dashboard = null; // dropped from the tree below → borrowed content released
         // Hand cursor on the closed pill: it opens on click.
-        Cursor = !hovering && CanExpand ? Cursors.Hand : null;
+        Cursor = !hovering && (CanExpand || hud is StatusActivity { Click: not null }) ? Cursors.Hand : null;
 
         if (hovering && standalone)
         {
-            dashboard ??= new Dashboard(cfg, host, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu);
+            dashboard ??= new Dashboard(cfg, host, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu,
+                hold: () => holds++,
+                release: () => { holds = Math.Max(0, holds - 1); if (!IsMouseOver && hovering) leaveTimer.Start(); });
             Show(dashboard, 440, null);
         }
         else if (hovering && NowPlaying.HasSession)
@@ -479,7 +564,7 @@ internal sealed class IslandWindow : Window
             level.Set(la);
             Show(level, 260, 34);
         }
-        else if (hud is StatusActivity sa) Show(new StatusView(sa), 290, 34);
+        else if (hud is StatusActivity sa) Show(new StatusView(sa), 320, 34);
         else if (trackHud && hasMusic)
         {
             track ??= new TrackView();
@@ -491,6 +576,8 @@ internal sealed class IslandWindow : Window
             rest.Update(cfg.ShowNowPlaying);
             // A notch reads as one when it is clearly wider than tall.
             double width = !standalone ? 168 : hasMusic ? 250 : cfg.ClockShowSeconds ? 160 : 140;
+            // Badges sit on both sides of the clock: the notch grows evenly so it stays centered.
+            width += 2 * rest.BadgeWidth;
             // Pointer on it (and it opens on click): a small stretch, like a button lifting.
             if (pointerIn && CanExpand) width += 14;
             Show(rest, width, Collapsed);
@@ -714,23 +801,54 @@ internal sealed class IslandWindow : Window
             HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
         };
 
+        // Badges: camera/microphone dots on the left (like iOS's privacy dots), timer and download on the right.
+        private readonly StackPanel leftBadges = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        private readonly StackPanel rightBadges = new() { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        private readonly System.Windows.Shapes.Ellipse camDot = Dot(IslandBrushes.Green), micDot = Dot(IslandBrushes.Orange);
+        private readonly TextBlock timerText = BadgeText(), downloadText = BadgeText();
+        private readonly StackPanel timerBadge, downloadBadge;
+
         public RestView(bool withClock)
         {
-            art.HorizontalAlignment = HorizontalAlignment.Left;
-            art.Margin = new Thickness(12, 0, 0, 0);
+            art.Margin = new Thickness(0, 0, 8, 0);
             art.Child = note;
-            paused.HorizontalAlignment = HorizontalAlignment.Right;
-            paused.Margin = new Thickness(0, 0, 16, 0);
             paused.Opacity = 0.6;
-            eq.Margin = new Thickness(0, 0, 16, 0);
-            Children.Add(art);
-            Children.Add(eq);
-            Children.Add(paused);
+            var left = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(12, 0, 0, 0) };
+            left.Children.Add(art);
+            left.Children.Add(leftBadges);
+            leftBadges.Children.Add(camDot);
+            leftBadges.Children.Add(micDot);
+            timerBadge = Badge(ExtraGlyphs.Timer, timerText);
+            downloadBadge = Badge(ExtraGlyphs.Download, downloadText);
+            rightBadges.Children.Add(downloadBadge);
+            rightBadges.Children.Add(timerBadge);
+            var right = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 16, 0) };
+            right.Children.Add(rightBadges);
+            right.Children.Add(eq);
+            right.Children.Add(paused);
+            Children.Add(left);
+            Children.Add(right);
             clock.Visibility = withClock ? Visibility.Visible : Visibility.Collapsed;
             Children.Add(clock);
         }
 
+        private static System.Windows.Shapes.Ellipse Dot(Brush b) => new() { Width = 7, Height = 7, Fill = b, Margin = new Thickness(0, 0, 6, 0), VerticalAlignment = VerticalAlignment.Center };
+        private static TextBlock BadgeText() => new() { FontSize = 12.5, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(4, 0, 0, 0) };
+
+        private static StackPanel Badge(string glyph, TextBlock text)
+        {
+            var s = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 10, 0) };
+            var g = Glyph(glyph, 11);
+            g.Opacity = 0.8;
+            s.Children.Add(g);
+            s.Children.Add(text);
+            return s;
+        }
+
         public string Clock { set => clock.Text = value; }
+
+        /// <summary>Extra width each side needs for the badges (the notch grows by twice this).</summary>
+        public double BadgeWidth { get; private set; }
 
         public void Update(bool showMusic)
         {
@@ -739,6 +857,23 @@ internal sealed class IslandWindow : Window
             if (music) SetArt(art, note);
             eq.Playing = music && NowPlaying.Playing;
             paused.Visibility = music && !NowPlaying.Playing ? Visibility.Visible : Visibility.Collapsed;
+
+            bool privacy = Island.Config?.IslandPrivacy != false;
+            camDot.Visibility = privacy && PrivacyWatch.CamApp != null ? Visibility.Visible : Visibility.Collapsed;
+            micDot.Visibility = privacy && PrivacyWatch.MicApp != null ? Visibility.Visible : Visibility.Collapsed;
+            camDot.ToolTip = PrivacyWatch.CamApp is { } c ? $"{c} está usando a câmera" : null;
+            micDot.ToolTip = PrivacyWatch.MicApp is { } m ? $"{m} está usando o microfone" : null;
+            timerBadge.Visibility = IslandTimer.Active ? Visibility.Visible : Visibility.Collapsed;
+            timerText.Text = IslandTimer.Format(IslandTimer.Left);
+            timerBadge.Opacity = IslandTimer.Paused ? 0.5 : 1;
+            bool dl = Island.Config?.IslandDownloads != false && DownloadWatch.Count > 0;
+            downloadBadge.Visibility = dl ? Visibility.Visible : Visibility.Collapsed;
+            downloadText.Text = dl ? DownloadWatch.Size(DownloadWatch.Bytes) : "";
+
+            leftBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            rightBadges.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            // Rounded up in steps so the notch doesn't twitch as the digits change width.
+            BadgeWidth = Math.Ceiling(Math.Max(leftBadges.DesiredSize.Width, rightBadges.DesiredSize.Width) / 8) * 8;
         }
     }
 
@@ -815,17 +950,17 @@ internal sealed class IslandWindow : Window
     {
         public StatusView(StatusActivity a)
         {
-            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
             ColumnDefinitions.Add(new ColumnDefinition());
             ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             var glyph = Glyph(a.Glyph, a.SymbolFont ? 15 : 14, a.SymbolFont);
-            glyph.Margin = new Thickness(10, 0, 0, 0);
+            glyph.Margin = new Thickness(14, 0, 0, 0);
             var name = new TextBlock { Text = a.Title, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(name, 1);
             var state = new TextBlock
             {
-                Text = a.State, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 14, 0),
-                Foreground = a.On ? new SolidColorBrush(Color.FromRgb(0x30, 0xD1, 0x58)) : new SolidColorBrush(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF)),
+                Text = a.State, FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 18, 0),
+                Foreground = a.StateBrush ?? (a.On ? IslandBrushes.Green : IslandBrushes.Dim),
             };
             Grid.SetColumn(state, 2);
             Children.Add(glyph);
@@ -845,8 +980,8 @@ internal sealed class IslandWindow : Window
     }
 
     /// <summary>
-    /// Standalone island's panel: tabs Música · Calendário · Controles · Bandeja (click or mouse wheel) and
-    /// the system menu. Calendar and Control Center are the menu bar panels' own content, borrowed with
+    /// Standalone island's panel: tabs Música · Calendário · Controles · Bandeja · Arquivos · Copiados · Timer
+    /// (click or mouse wheel) and the system menu. Calendar and Control Center are the menu bar panels' own content, borrowed with
     /// Flyout.Detach and given back (window closed) when the tab changes or the island collapses.
     /// </summary>
     private sealed class Dashboard : StackPanel
@@ -855,22 +990,28 @@ internal sealed class IslandWindow : Window
         private static readonly (string glyph, string name)[] tabs =
         {
             (IslandGlyphs.Music, "Música"), (IslandGlyphs.Calendar, "Calendário"), (IslandGlyphs.Controls, "Controles"), (IslandGlyphs.Tray, "Bandeja"),
+            (ExtraGlyphs.Folder, "Arquivos"), (ExtraGlyphs.Clipboard, "Copiados"), (ExtraGlyphs.Timer, "Timer"),
         };
+        public const int ShelfTab = 4;
+        /// <summary>Tab the next panel opens on (files dragged in), instead of the last one used.</summary>
+        public static int? Preselect;
         private static readonly Brush chipOn = Frozen(new SolidColorBrush(Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF)));
 
         private readonly DocaConfig cfg;
         private readonly FrameworkElement anchor;
-        private readonly Action dismiss;
+        private readonly Action dismiss, hold, release;
         private readonly Border[] chips = new Border[tabs.Length];
         private readonly Border body = new();
         private Flyout? lent;
         private int index = -1;
 
-        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action<FrameworkElement> systemMenu)
+        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action<FrameworkElement> systemMenu, Action hold, Action release)
         {
             this.cfg = cfg;
             this.anchor = anchor;
             this.dismiss = dismiss;
+            this.hold = hold;
+            this.release = release;
             // Room for the big squircle corners at the bottom.
             Margin = new Thickness(18, 10, 18, 20);
             // Fluent dark styles for the borrowed panels' sliders and buttons, scoped to this panel (a window-wide
@@ -926,7 +1067,17 @@ internal sealed class IslandWindow : Window
             };
             Unloaded += (_, _) => Release();
             // Last tab used, except Música with nothing playing: the calendar says more than "Nada tocando".
-            Loaded += (_, _) => { if (index < 0) Select(lastTab >= 0 && !(lastTab == 0 && !NowPlaying.HasSession) ? lastTab : NowPlaying.HasSession ? 0 : 1); };
+            Loaded += (_, _) =>
+            {
+                if (index >= 0) return;
+                if (Preselect is int p) { Preselect = null; Select(p); return; }
+                Select(lastTab >= 0 && !(lastTab == 0 && !NowPlaying.HasSession) ? lastTab : NowPlaying.HasSession ? 0 : 1);
+            };
+        }
+
+        public void SelectTab(int n)
+        {
+            if (IsLoaded) Select(n); else Preselect = n;
         }
 
         private static Border RoundButton(string glyph, string tip, Action<FrameworkElement> click)
@@ -972,6 +1123,13 @@ internal sealed class IslandWindow : Window
                     break;
                 case 1: content = Borrow(new CalendarFlyout(cfg)); break;
                 case 2: content = Borrow(new ControlCenterFlyout(cfg, embedded: true)); break;
+                case 4: content = new ShelfView(hold, release); break;
+                case 5:
+                    content = cfg.IslandClipboard
+                        ? new ClipboardView(dismiss)
+                        : Empty("O histórico está desligado (Preferências → Topo da tela).");
+                    break;
+                case 6: content = new TimerView(); break;
                 default: content = TrayGrid(); break;
             }
             body.Child = content;

@@ -161,7 +161,14 @@ internal sealed class SettingsWindow : Window
             Toggle("Ícones da bandeja monocromáticos", "Na aba Bandeja do painel. Avisos em vermelho (mensagens não lidas) continuam coloridos.",
                 () => cfg.TrayIconsMonochrome, v => { cfg.TrayIconsMonochrome = v; Changed(Apply.Screens); })),
         Card(
-            Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Botão direito na ilha (ou ⋯ no painel): menu do sistema, com Preferências, Desligar e Sair do Doca. A ilha também cresce por um instante com volume, brilho, nova música, fones Bluetooth e Caps Lock.")));
+            Toggle("Histórico do que você copia", "Aba Copiados: textos, imagens e arquivos copiados, para copiar de novo. Fica só na memória (os textos fixados são salvos). Senhas copiadas de gerenciadores de senha não entram.",
+                () => cfg.IslandClipboard, v => { cfg.IslandClipboard = v; if (!v) ClipboardHistory.Clear(); Changed(Apply.Screens); }),
+            Toggle("Câmera e microfone em uso", "Um ponto verde (câmera) ou laranja (microfone) na ilha enquanto algum app usa, e o nome do app quando começa.",
+                () => cfg.IslandPrivacy, v => { cfg.IslandPrivacy = v; Changed(Apply.Screens); }),
+            Toggle("Downloads do navegador", "O tamanho baixado aparece na ilha; ao terminar, clique no aviso para ver o arquivo na pasta.",
+                () => cfg.IslandDownloads, v => { cfg.IslandDownloads = v; Changed(Apply.Screens); })),
+        Card(
+            Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Arraste arquivos até a ilha para guardá-los na aba Arquivos e arraste-os de lá quando for usar. Botão direito na ilha (ou ⋯ no painel): menu do sistema. A ilha também avisa volume, brilho, nova música, fones Bluetooth (com a bateria), Caps Lock, downloads e o fim do timer.")));
 
     private UIElement BarPage() => Stack(
         ModeCard(),
