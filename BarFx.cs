@@ -21,7 +21,10 @@ internal static class BarFx
     private static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
     /// <summary>Gives the border its own (animatable) highlight brush, fully transparent at rest.</summary>
-    public static void Prepare(Border b) => b.Background = new SolidColorBrush(Color.FromArgb(0, 0xFF, 0xFF, 0xFF));
+    // Highlights in the theme's ink (white on dark, dark on the island's light themes).
+    private static Color Ink => IslandTheme.Ink;
+
+    public static void Prepare(Border b) => b.Background = new SolidColorBrush(Color.FromArgb(0, Ink.R, Ink.G, Ink.B));
 
     public static void Hot(Border b, bool on) => To(b, on ? (Subtle ? (byte)0x1C : HoverAlpha) : (byte)0, on ? 90 : 200);
 
@@ -30,7 +33,7 @@ internal static class BarFx
     private static void To(Border b, byte alpha, int ms)
     {
         if (b.Background is not SolidColorBrush { IsFrozen: false } brush) { Prepare(b); brush = (SolidColorBrush)b.Background; }
-        var anim = new ColorAnimation(Color.FromArgb(alpha, 0xFF, 0xFF, 0xFF), TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease };
+        var anim = new ColorAnimation(Color.FromArgb(alpha, Ink.R, Ink.G, Ink.B), TimeSpan.FromMilliseconds(ms)) { EasingFunction = ease };
         brush.BeginAnimation(SolidColorBrush.ColorProperty, anim);
     }
 }
@@ -42,16 +45,19 @@ internal static class BarFx
 internal static class TemplateIcon
 {
     // Keyed by the app's icon object: the same icon converts once, a new one (app changed it) converts again.
-    private static readonly ConditionalWeakTable<ImageSource, ImageSource> cache = new();
+    // Also keyed by the ink: the island's light themes want dark silhouettes.
+    private sealed record Done(Color Ink, ImageSource Image);
+    private static readonly ConditionalWeakTable<ImageSource, Done> cache = new();
 
     public static ImageSource? From(ImageSource? src)
     {
         if (src == null) return null;
-        if (cache.TryGetValue(src, out var done)) return done;
+        var ink = IslandTheme.Ink;
+        if (cache.TryGetValue(src, out var done) && done.Ink == ink) return done.Image;
         ImageSource result;
-        try { result = Convert(src) ?? src; }
+        try { result = Convert(src, ink) ?? src; }
         catch (Exception ex) { App.Log(ex); result = src; }
-        cache.AddOrUpdate(src, result);
+        cache.AddOrUpdate(src, new Done(ink, result));
         return result;
     }
 
@@ -66,7 +72,7 @@ internal static class TemplateIcon
         return rtb;
     }
 
-    private static BitmapSource? Convert(ImageSource src)
+    private static BitmapSource? Convert(ImageSource src, Color ink)
     {
         var bmp = ToBitmap(src);
         if (bmp == null || bmp.PixelWidth == 0 || bmp.PixelWidth > 256) return null;
@@ -105,7 +111,7 @@ internal static class TemplateIcon
             double t = flat ? 1 : (Luma(px, i) - min) / (max - min);
             if (darkIcon && !flat) t = 1 - t;
             double alpha = a * (flat ? 1 : 0.35 + 0.65 * t);
-            px[i] = px[i + 1] = px[i + 2] = 0xFF;
+            px[i] = ink.B; px[i + 1] = ink.G; px[i + 2] = ink.R;
             px[i + 3] = (byte)Math.Clamp(alpha, 0, 255);
         }
 

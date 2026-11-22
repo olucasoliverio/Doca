@@ -189,9 +189,9 @@ internal static class Theme
 /// </summary>
 internal sealed class ControlCenterFlyout : Flyout
 {
-    private static readonly Brush tileOff = new SolidColorBrush(Color.FromArgb(0x1C, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush circleOff = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush panel = new SolidColorBrush(Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
+    private static Brush tileOff => IslandTheme.InkA(0x1C);
+    private static Brush circleOff => IslandTheme.InkA(0x30);
+    private static Brush panel => IslandTheme.InkA(IslandTheme.Light ? (byte)0x10 : (byte)0x14);
 
     private readonly DocaConfig cfg;
     private readonly StackPanel displays = new();

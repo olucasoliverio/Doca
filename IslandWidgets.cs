@@ -167,7 +167,7 @@ internal sealed class HomeView : UniformGrid
 
     private static TextBlock Line(double size = 12.5, bool bold = false, Brush? brush = null) => new()
     {
-        FontSize = size, FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Foreground = brush ?? Brushes.White,
+        FontSize = size, FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal, Foreground = brush ?? IslandTheme.InkBrush,
         TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center,
     };
 
@@ -225,8 +225,8 @@ internal sealed class HomeView : UniformGrid
     private Border Calendar()
     {
         // The weekday in red like macOS, or in the accent when one is chosen.
-        bool white = string.Equals(Island.Config?.IslandAccent ?? "#FFFFFF", "#FFFFFF", StringComparison.OrdinalIgnoreCase);
-        var weekday = Line(12, true, white ? new SolidColorBrush(Color.FromRgb(0xFF, 0x45, 0x3A)) : IslandBrushes.Accent);
+        bool plain = IslandTheme.Accent == IslandTheme.Ink;
+        var weekday = Line(12, true, plain ? IslandBrushes.Red : IslandBrushes.Accent);
         var day = new TextBlock { FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, FontSize = 34, Margin = new Thickness(0, -4, 0, -6) };
         var month = Line(11.5, false, IslandBrushes.Dim);
         var s = new StackPanel();

@@ -569,25 +569,16 @@ internal static class IslandTimer
 
 internal static class IslandBrushes
 {
-    public static readonly Brush Card = F(Color.FromArgb(0x12, 0xFF, 0xFF, 0xFF));
-    public static readonly Brush Dim = F(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
-    public static readonly Brush Faint = F(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
+    // Cards, secondary text and hovers are the theme's ink at some opacity (white on dark themes, dark on light).
+    public static Brush Card => IslandTheme.InkA(IslandTheme.Light ? (byte)0x10 : (byte)0x12);
+    public static Brush Dim => IslandTheme.InkA(IslandTheme.Light ? (byte)0xA6 : (byte)0x99);
+    public static Brush Faint => IslandTheme.InkA(IslandTheme.Light ? (byte)0x22 : (byte)0x30);
     public static readonly Brush Orange = F(Color.FromRgb(0xFF, 0x9F, 0x0A));
     public static readonly Brush Red = F(Color.FromRgb(0xFF, 0x45, 0x3A));
     public static readonly Brush Green = F(Color.FromRgb(0x30, 0xD1, 0x58));
 
-    private static string? accentKey;
-    private static Brush accent = Brushes.White;
-    /// <summary>Island accent (Preferências → Topo da tela): sliders, level and progress bars, selected tab.</summary>
-    public static Brush Accent
-    {
-        get
-        {
-            var key = Island.Config?.IslandAccent ?? "#FFFFFF";
-            if (key != accentKey) { accentKey = key; accent = F(Parse(key, Colors.White)); }
-            return accent;
-        }
-    }
+    /// <summary>Island accent (the theme's, or the one chosen in Preferências): sliders, bars, selected tab.</summary>
+    public static Brush Accent => IslandTheme.AccentBrush;
 
     public static Color Parse(string hex, Color fallback)
     {
@@ -621,7 +612,7 @@ internal static class IslandBrushes
 
     public static TextBlock Text(string s, double size = 12, Brush? brush = null) => new()
     {
-        Text = s, FontSize = size, Foreground = brush ?? Brushes.White, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+        Text = s, FontSize = size, Foreground = brush ?? IslandTheme.InkBrush, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
     };
 }
 
@@ -955,7 +946,7 @@ internal sealed class TimerView : StackPanel
         FontFamily = new FontFamily("Segoe UI Variable Display, Segoe UI"), FontWeight = FontWeights.Bold, FontSize = 44,
         HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 0, 0, 8),
     };
-    private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = IslandBrushes.Accent, HorizontalAlignment = HorizontalAlignment.Left };
+    private ThemedBar fill = new() { Width = 300 };
     private bool runningLayout;
 
     public TimerView()
@@ -983,10 +974,8 @@ internal sealed class TimerView : StackPanel
             return;
         }
         Children.Add(big);
-        var track = new Grid { Width = 300, HorizontalAlignment = HorizontalAlignment.Center };
-        track.Children.Add(new Border { Height = 5, CornerRadius = new CornerRadius(2.5), Background = IslandBrushes.Faint });
-        track.Children.Add(fill);
-        Children.Add(track);
+        fill = new ThemedBar { Width = 300, HorizontalAlignment = HorizontalAlignment.Center };
+        Children.Add(fill);
         var row = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(0, 14, 0, 2) };
         row.Children.Add(Round(IslandTimer.Paused ? ExtraGlyphs.Play : ExtraGlyphs.Pause, IslandTimer.TogglePause, IslandTimer.Paused ? "Continuar" : "Pausar"));
         row.Children.Add(Round(ExtraGlyphs.Add, IslandTimer.AddMinute, "Mais 1 minuto"));
@@ -1012,7 +1001,7 @@ internal sealed class TimerView : StackPanel
         big.Text = IslandTimer.Format(IslandTimer.Left);
         big.Opacity = IslandTimer.Paused ? 0.5 : 1;
         double total = Math.Max(1, IslandTimer.Total.TotalSeconds);
-        fill.Width = 300 * Math.Clamp(IslandTimer.Left.TotalSeconds / total, 0, 1);
+        fill.Value = IslandTimer.Left.TotalSeconds / total;
     }
 }
 

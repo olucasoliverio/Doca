@@ -273,9 +273,12 @@ internal sealed class IslandWindow : Window
         inset = floating ? Math.Clamp(cfg.IslandGap, 2, 40) : 0;
         rest = new RestView(standalone, 14 * SizeScale);
         // Island color on top, fading into the playing album's color at the bottom (see UpdateTint).
-        baseColor = IslandBrushes.Parse(cfg.IslandColor, Colors.Black);
+        var theme = IslandTheme.Current;
+        baseColor = theme.Bottom;
         tintStop = new GradientStop(baseColor, 1);
-        pill.Fill = new LinearGradientBrush(new GradientStopCollection { new GradientStop(baseColor, 0), new GradientStop(baseColor, 0.35), tintStop }, 90);
+        pill.Fill = new LinearGradientBrush(new GradientStopCollection { new GradientStop(theme.Top, 0), new GradientStop(theme.Top, 0.25), tintStop }, 90);
+        // A light island needs an edge, or it melts into a white page behind it.
+        if (theme.Light) { pill.Stroke = IslandTheme.InkA(0x26); pill.StrokeThickness = 1; }
         Title = "Doca Island";
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -289,7 +292,7 @@ internal sealed class IslandWindow : Window
         Height = MaxH;
         FontFamily = new FontFamily(cfg.Font);
         FontSize = 13;
-        Foreground = Brushes.White;
+        Foreground = IslandTheme.InkBrush;
         TextOptions.SetTextFormattingMode(this, TextFormattingMode.Ideal);
         UseLayoutRounding = true;
 
@@ -613,7 +616,7 @@ internal sealed class IslandWindow : Window
             // White means a gray cover: no tint then.
             if (art != Colors.White)
             {
-                const double k = 0.30;
+                double k = IslandTheme.Light ? 0.22 : 0.30;
                 target = Color.FromRgb((byte)(baseColor.R + (art.R - baseColor.R) * k), (byte)(baseColor.G + (art.G - baseColor.G) * k), (byte)(baseColor.B + (art.B - baseColor.B) * k));
             }
         }
@@ -863,7 +866,7 @@ internal sealed class IslandWindow : Window
 
     #region Views
 
-    private static readonly Brush artPlaceholder = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF)));
+    private static Brush artPlaceholder => IslandTheme.InkA(0x30);
     private static T Frozen<T>(T f) where T : Freezable { f.Freeze(); return f; }
 
     private static Border Art(double size, double radius) => new()
@@ -988,7 +991,7 @@ internal sealed class IslandWindow : Window
             if (play)
             {
                 SetArt(art, null);
-                eq.Color = ArtColor.Of(NowPlaying.Art);
+                eq.Color = IslandTheme.Readable(ArtColor.Of(NowPlaying.Art));
             }
             eq.Playing = play;
             // Paused: the cover stays as a small, dim reminder next to the clock (a click opens the player).
@@ -1018,7 +1021,7 @@ internal sealed class IslandWindow : Window
             {
                 bool waiting = agent.State == "waiting";
                 agentText.Text = Agents.Label(agent.Project);
-                agentGlyph.Foreground = agentText.Foreground = waiting ? IslandBrushes.Orange : Brushes.White;
+                agentGlyph.Foreground = agentText.Foreground = waiting ? IslandBrushes.Orange : IslandTheme.InkBrush;
                 agentBadge.ToolTip = $"Claude · {Agents.Label(agent.Project)}: {(waiting ? "precisa de você" : "trabalhando")}";
                 if (!waiting && !pulsing) { agentGlyph.BeginAnimation(OpacityProperty, agentPulse); pulsing = true; }
                 else if (waiting && pulsing) { agentGlyph.BeginAnimation(OpacityProperty, null); pulsing = false; }
@@ -1067,7 +1070,7 @@ internal sealed class IslandWindow : Window
         };
         private static readonly double[] beats = { 0.95, 1.15, 1.05, 1.3 };
         private readonly ScaleTransform[] bars = new ScaleTransform[4];
-        private readonly SolidColorBrush fill = new(Colors.White);
+        private readonly SolidColorBrush fill = new(IslandTheme.Ink);
         private bool playing;
 
         public IslandEq()
@@ -1178,7 +1181,7 @@ internal sealed class IslandWindow : Window
     private sealed class LevelView : Grid
     {
         private readonly TextBlock glyph = Glyph("", 14);
-        private readonly Border fill = new() { Height = 5, CornerRadius = new CornerRadius(2.5), Background = IslandBrushes.Accent, HorizontalAlignment = HorizontalAlignment.Left };
+        private readonly ThemedBar bar = new() { Width = TrackWidth };
         private readonly TextBlock pct = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.8 };
         private const double TrackWidth = 150;
 
@@ -1188,14 +1191,11 @@ internal sealed class IslandWindow : Window
             ColumnDefinitions.Add(new ColumnDefinition());
             ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(44) });
             glyph.Margin = new Thickness(10, 0, 0, 0);
-            var trackBar = new Grid { Width = TrackWidth, VerticalAlignment = VerticalAlignment.Center };
-            trackBar.Children.Add(new Border { Height = 5, CornerRadius = new CornerRadius(2.5), Background = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF)) });
-            trackBar.Children.Add(fill);
-            Grid.SetColumn(trackBar, 1);
+            Grid.SetColumn(bar, 1);
             pct.Margin = new Thickness(0, 0, 14, 0);
             Grid.SetColumn(pct, 2);
             Children.Add(glyph);
-            Children.Add(trackBar);
+            Children.Add(bar);
             Children.Add(pct);
         }
 
@@ -1203,7 +1203,7 @@ internal sealed class IslandWindow : Window
         {
             double v = Math.Clamp(a.Level, 0, 1);
             glyph.Text = a.Glyph;
-            fill.Width = a.Muted ? 0 : Math.Max(5, TrackWidth * v);
+            bar.Value = a.Muted ? 0 : v;
             pct.Text = a.Muted ? "—" : $"{Math.Round(v * 100)}";
         }
     }
@@ -1317,10 +1317,10 @@ internal sealed class IslandWindow : Window
             Margin = new Thickness(18, 10, 18, 20);
             // Fluent dark styles for the borrowed panels' sliders and buttons, scoped to this panel (a window-wide
             // ThemeMode would also give the island window a backdrop).
-            try { Resources.MergedDictionaries.Add(new ResourceDictionary { Source = new Uri("pack://application:,,,/PresentationFramework.Fluent;component/Themes/Fluent.Dark.xaml") }); }
+            try { Resources.MergedDictionaries.Add(new ResourceDictionary { Source = IslandTheme.FluentDictionary }); }
             catch (Exception ex) { App.Log(ex); }
             // The island's accent (white by default) instead of the Windows accent blue on sliders, toggles and buttons.
-            var ac = IslandBrushes.Parse(cfg.IslandAccent, Colors.White);
+            var ac = IslandTheme.Accent;
             var accent = Frozen(new SolidColorBrush(ac));
             var accentDim = Frozen(new SolidColorBrush(Color.FromArgb(0xE6, ac.R, ac.G, ac.B)));
             var accentLow = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, ac.R, ac.G, ac.B)));
@@ -1332,7 +1332,7 @@ internal sealed class IslandWindow : Window
             Resources["SliderThumbBackground"] = accent;
             Resources["SliderThumbBackgroundPointerOver"] = accentDim;
             Resources["SliderThumbBackgroundPressed"] = accentLow;
-            chipOn = Frozen(new SolidColorBrush(ac == Colors.White ? Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x55, ac.R, ac.G, ac.B)));
+            chipOn = ac == IslandTheme.Ink ? IslandTheme.InkA(0x2E) : Frozen(new SolidColorBrush(Color.FromArgb(IslandTheme.Light ? (byte)0x40 : (byte)0x55, ac.R, ac.G, ac.B)));
 
             // The tab used last, also across restarts.
             if (lastTab < 0 && cfg.IslandLastTab is { } saved) lastTab = Array.FindIndex(tabs, t => t.name == saved);

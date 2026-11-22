@@ -186,17 +186,17 @@ internal static class NowPlaying
 internal sealed class PlayerView : StackPanel
 {
     private const string IconFont = "Segoe Fluent Icons, Segoe MDL2 Assets";
-    private static readonly Brush hover = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush artPlaceholder = new SolidColorBrush(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
-    private static readonly Brush trackBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
+    private static Brush hover => IslandTheme.InkA(0x24);
+    private static Brush artPlaceholder => IslandTheme.InkA(0x30);
 
-    private readonly Border art = new() { CornerRadius = new CornerRadius(8), Background = artPlaceholder };
+    private readonly Border art = new() { CornerRadius = new CornerRadius(8) };
     private readonly TextBlock artGlyph = new() { Text = "", FontFamily = new FontFamily(IconFont), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.6 };
     private readonly TextBlock title = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock artist = new() { FontSize = 12, Opacity = 0.7, TextTrimming = TextTrimming.CharacterEllipsis };
     private readonly TextBlock app = new() { FontSize = 11, Opacity = 0.5, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 2, 0, 0) };
     private readonly Grid timeline = new() { Margin = new Thickness(0, 10, 0, 0) };
-    private readonly Border fill = new() { Height = 4, CornerRadius = new CornerRadius(2), Background = Brushes.White, HorizontalAlignment = HorizontalAlignment.Left };
+    // The theme's progress style (a plain bar, or hearts/petals/stars on some island themes).
+    private readonly ThemedBar bar = new(4);
     private readonly TextBlock elapsed = new() { FontSize = 11, Opacity = 0.55 }, remaining = new() { FontSize = 11, Opacity = 0.55, HorizontalAlignment = HorizontalAlignment.Right };
     private readonly Border prev, play, next;
     private readonly DispatcherTimer tick = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -207,6 +207,7 @@ internal sealed class PlayerView : StackPanel
         art.Width = art.Height = artSize;
         artGlyph.FontSize = artSize * 0.38;
         art.Child = artGlyph;
+        art.Background = artPlaceholder;
 
         var texts = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
         texts.Children.Add(title);
@@ -243,11 +244,9 @@ internal sealed class PlayerView : StackPanel
         }
         else
         {
-            var track = new Border { Height = 4, CornerRadius = new CornerRadius(2), Background = trackBrush };
             timeline.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
             timeline.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            timeline.Children.Add(track);
-            timeline.Children.Add(fill);
+            timeline.Children.Add(bar);
             var times = new Grid { Margin = new Thickness(0, 4, 0, 0) };
             times.Children.Add(elapsed);
             times.Children.Add(remaining);
@@ -297,7 +296,7 @@ internal sealed class PlayerView : StackPanel
         var t = NowPlaying.Timeline();
         timeline.Visibility = t != null && NowPlaying.HasSession ? Visibility.Visible : Visibility.Collapsed;
         if (t is not { } v) return;
-        fill.Width = Math.Max(4, timeline.ActualWidth * (v.position.TotalSeconds / v.duration.TotalSeconds));
+        bar.Value = v.duration.TotalSeconds > 0 ? v.position.TotalSeconds / v.duration.TotalSeconds : 0;
         elapsed.Text = Format(v.position);
         remaining.Text = "-" + Format(v.duration - v.position);
     }

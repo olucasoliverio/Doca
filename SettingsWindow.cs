@@ -172,9 +172,9 @@ internal sealed class SettingsWindow : Window
             Row("Tamanho", "Da ilha fechada.",
                 Choice(new[] { "Pequena", "Média", "Grande" }, () => cfg.IslandSize, v => { cfg.IslandSize = v; Changed(Apply.Screens); })),
             SliderRow("Cantos do painel", 16, 56, () => cfg.IslandCorner, v => { cfg.IslandCorner = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
-            Row("Cor da ilha", null,
-                Choice(IslandColors.Keys.ToArray(), () => NameOf(IslandColors, cfg.IslandColor), v => { cfg.IslandColor = IslandColors[v]; Changed(Apply.Screens); })),
-            Row("Cor de destaque", "Sliders, barras de progresso e a aba selecionada.",
+            Row("Tema", "Escuros: Preto, Grafite, Meia-noite, Roxo, Vinho e Candy (★). Claros: Branco, Rosé (♥), Lavanda (✦), Pêssego e Sakura (✿); os símbolos enfeitam as barras de progresso. Os painéis da ilha seguem o tema.",
+                Choice(IslandTheme.All.Select(t => t.Name).ToArray(), () => IslandTheme.Find(cfg).Name, v => { cfg.IslandTheme = v; Changed(Apply.Screens); })),
+            Row("Cor de destaque", "Sliders, barras de progresso e a aba selecionada. \"Do tema\" usa a cor que combina com o tema.",
                 Choice(AccentColors.Keys.ToArray(), () => NameOf(AccentColors, cfg.IslandAccent), v => { cfg.IslandAccent = AccentColors[v]; Changed(Apply.Screens); }))),
         TabsCard(),
         Card(WidgetToggles()),
@@ -209,7 +209,7 @@ internal sealed class SettingsWindow : Window
     };
     private static readonly Dictionary<string, string> AccentColors = new()
     {
-        ["Branco"] = "#FFFFFF", ["Azul"] = "#0A84FF", ["Verde"] = "#30D158", ["Laranja"] = "#FF9F0A", ["Rosa"] = "#FF375F", ["Roxo"] = "#BF5AF2", ["Amarelo"] = "#FFD60A",
+        ["Do tema"] = "#FFFFFF", ["Azul"] = "#0A84FF", ["Verde"] = "#30D158", ["Laranja"] = "#FF9F0A", ["Rosa"] = "#FF375F", ["Roxo"] = "#BF5AF2", ["Amarelo"] = "#FFD60A",
     };
     private static readonly string[] AllTabs = { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
 

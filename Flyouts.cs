@@ -24,8 +24,11 @@ internal abstract class Flyout : Window
     private static DateTime lastClosed;
 
     protected const string IconFont = "Segoe Fluent Icons, Segoe MDL2 Assets";
-    protected static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x0A, 0x63, 0xD9));
-    protected static readonly Brush RowHover = new SolidColorBrush(Color.FromArgb(0x24, 0xFF, 0xFF, 0xFF));
+    private static readonly Brush blue = new SolidColorBrush(Color.FromRgb(0x0A, 0x63, 0xD9));
+    /// <summary>"On" circles, today in the calendar: the island theme's accent when it has a color, else blue.</summary>
+    protected static Brush Accent => IslandTheme.Accent == IslandTheme.Ink ? blue : IslandTheme.AccentBrush;
+    // Ink-based (IslandTheme): white on the dark look, dark on the island's light themes.
+    protected static Brush RowHover => IslandTheme.InkA(0x24);
 
     private FrameworkElement? anchor;
     /// <summary>The menu bar item this panel hangs from; another panel opened from here reuses it.</summary>
@@ -74,7 +77,7 @@ internal abstract class Flyout : Window
 #pragma warning disable WPF0001 // Fluent theme
     protected Flyout(DocaConfig cfg, double width)
     {
-        ThemeMode = ThemeMode.Dark;
+        ThemeMode = IslandTheme.Light ? ThemeMode.Light : ThemeMode.Dark;
 #pragma warning restore WPF0001
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -85,8 +88,10 @@ internal abstract class Flyout : Window
         Left = Top = -20000;
         Background = Brushes.Transparent;
         FontFamily = new FontFamily(cfg.Font);
-        Foreground = Brushes.White;
-        Content = new Border { Padding = new Thickness(14, 12, 14, 12), Child = Body, Background = new SolidColorBrush(Color.FromArgb(0x60, 0x20, 0x20, 0x22)) };
+        Foreground = IslandTheme.InkBrush;
+        // Over the acrylic: a dark veil, or the island theme's color on its light themes.
+        var veil = IslandTheme.Light ? Color.FromArgb(0xB8, IslandTheme.Current.Top.R, IslandTheme.Current.Top.G, IslandTheme.Current.Top.B) : Color.FromArgb(0x60, 0x20, 0x20, 0x22);
+        Content = new Border { Padding = new Thickness(14, 12, 14, 12), Child = Body, Background = new SolidColorBrush(veil) };
 
         SourceInitialized += (_, _) =>
         {
@@ -94,7 +99,7 @@ internal abstract class Flyout : Window
             HwndSource.FromHwnd(h).CompositionTarget.BackgroundColor = Colors.Transparent;
             var m = new Native.MARGINS { Left = -1, Right = -1, Top = -1, Bottom = -1 };
             Native.DwmExtendFrameIntoClientArea(h, ref m);
-            int dark = 1, round = 2 /* DWMWCP_ROUND */, acrylic = 3 /* DWMSBT_TRANSIENTWINDOW */;
+            int dark = IslandTheme.Light ? 0 : 1, round = 2 /* DWMWCP_ROUND */, acrylic = 3 /* DWMSBT_TRANSIENTWINDOW */;
             Native.DwmSetWindowAttribute(h, Native.DWMWA_USE_IMMERSIVE_DARK_MODE, ref dark, sizeof(int));
             Native.DwmSetWindowAttribute(h, Native.DWMWA_WINDOW_CORNER_PREFERENCE, ref round, sizeof(int));
             Native.DwmSetWindowAttribute(h, 38 /* DWMWA_SYSTEMBACKDROP_TYPE */, ref acrylic, sizeof(int));
@@ -145,7 +150,7 @@ internal abstract class Flyout : Window
 
     protected static TextBlock Glyph(string g, double size = 16) => new() { Text = g, FontFamily = new FontFamily(IconFont), FontSize = size, VerticalAlignment = VerticalAlignment.Center };
 
-    protected static Border Divider() => new() { Height = 1, Background = new SolidColorBrush(Color.FromArgb(0x26, 0xFF, 0xFF, 0xFF)), Margin = new Thickness(-14, 10, -14, 8) };
+    protected static Border Divider() => new() { Height = 1, Background = IslandTheme.InkA(0x26), Margin = new Thickness(-14, 10, -14, 8) };
 
     /// <summary>Clickable row with hover highlight: [icon] text … [trailing].</summary>
     protected static Border Row(UIElement? icon, string text, string? detail, UIElement? trailing, Action? click)

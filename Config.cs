@@ -84,6 +84,8 @@ internal sealed class DocaConfig
     public string IslandSize { get; set; } = "Média";
     /// <summary>Bottom corner radius of the open panel (DIP).</summary>
     public double IslandCorner { get; set; } = 42;
+    /// <summary>Island theme by name (Themes.cs); null = derived from the older IslandColor.</summary>
+    public string? IslandTheme { get; set; }
     /// <summary>Island background and accent (sliders, bars, selected tab), "#RRGGBB".</summary>
     public string IslandColor { get; set; } = "#000000";
     public string IslandAccent { get; set; } = "#FFFFFF";

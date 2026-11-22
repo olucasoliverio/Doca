@@ -115,6 +115,8 @@ public partial class App : Application
     /// <summary>One menu bar and one Dock per monitor (or only the primary one, per settings).</summary>
     private void CreateScreens()
     {
+        // Colors for everything built below (island themes; the bar keeps the dark look).
+        IslandTheme.Use(cfg!);
         screensLayout = MonitorLayout();
         foreach (var b in bars) b.Close();
         foreach (var i in islands) i.Close();
