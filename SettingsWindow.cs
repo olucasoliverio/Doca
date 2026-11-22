@@ -168,6 +168,7 @@ internal sealed class SettingsWindow : Window
                 Choice(IslandColors.Keys.ToArray(), () => NameOf(IslandColors, cfg.IslandColor), v => { cfg.IslandColor = IslandColors[v]; Changed(Apply.Screens); })),
             Row("Cor de destaque", "Sliders, barras de progresso e a aba selecionada.",
                 Choice(AccentColors.Keys.ToArray(), () => NameOf(AccentColors, cfg.IslandAccent), v => { cfg.IslandAccent = AccentColors[v]; Changed(Apply.Screens); }))),
+        TabsCard(),
         Card(WidgetToggles()),
         Card(
             Toggle("Música tocando", "Capa e equalizador na ilha enquanto algo toca (Spotify, YouTube…), e o aviso de nova faixa.",
@@ -194,6 +195,70 @@ internal sealed class SettingsWindow : Window
     {
         ["Branco"] = "#FFFFFF", ["Azul"] = "#0A84FF", ["Verde"] = "#30D158", ["Laranja"] = "#FF9F0A", ["Rosa"] = "#FF375F", ["Roxo"] = "#BF5AF2", ["Amarelo"] = "#FFD60A",
     };
+    private static readonly string[] AllTabs = { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
+
+    /// <summary>
+    /// The panel's tabs: on/off and order (arrows). Hidden tabs are listed after the visible ones; at least one
+    /// stays on.
+    /// </summary>
+    private Border TabsCard()
+    {
+        var list = new StackPanel();
+        void Fill()
+        {
+            list.Children.Clear();
+            list.Children.Add(Row("Abas do painel", "Quais aparecem no topo do painel e em que ordem. A rodinha passa por elas nessa ordem.", null));
+            var visible = cfg.IslandTabs.Where(AllTabs.Contains).Distinct().ToList();
+            var all = visible.Concat(AllTabs.Except(visible)).ToList();
+            for (int i = 0; i < all.Count; i++)
+            {
+                string tab = all[i];
+                bool on = visible.Contains(tab);
+                int pos = visible.IndexOf(tab);
+                var controls = new StackPanel { Orientation = Orientation.Horizontal };
+                controls.Children.Add(Arrow("", "Mover para a esquerda", on && pos > 0, () => Move(visible, pos, -1)));
+                controls.Children.Add(Arrow("", "Mover para a direita", on && pos < visible.Count - 1, () => Move(visible, pos, +1)));
+                var box = new CheckBox { IsChecked = on, MinWidth = 0, Margin = new Thickness(12, 0, 0, 0) };
+                box.Click += (_, _) =>
+                {
+                    if (box.IsChecked == true) visible.Add(tab);
+                    else if (visible.Count > 1) visible.Remove(tab);
+                    else { box.IsChecked = true; return; } // the panel needs at least one tab
+                    Save(visible);
+                };
+                controls.Children.Add(box);
+                var row = Row(tab, null, controls);
+                row.Margin = new Thickness(0, 4, 0, 4);
+                row.Opacity = on ? 1 : 0.6;
+                list.Children.Add(row);
+            }
+        }
+        void Move(List<string> visible, int pos, int by)
+        {
+            (visible[pos], visible[pos + by]) = (visible[pos + by], visible[pos]);
+            Save(visible);
+        }
+        void Save(List<string> visible)
+        {
+            cfg.IslandTabs = visible.ToList();
+            Changed(Apply.Screens);
+            Fill();
+        }
+        Fill();
+        return Card(list);
+    }
+
+    private static Button Arrow(string glyph, string tip, bool enabled, Action click)
+    {
+        var b = new Button
+        {
+            Content = new TextBlock { Text = glyph, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 12 },
+            Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(4, 0, 0, 0), ToolTip = tip, IsEnabled = enabled, MinWidth = 0,
+        };
+        b.Click += (_, _) => click();
+        return b;
+    }
+
     private static readonly string[] AllWidgets = { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
 
     private static string NameOf(Dictionary<string, string> map, string hex) =>

@@ -87,6 +87,8 @@ internal sealed class DocaConfig
     /// <summary>Island background and accent (sliders, bars, selected tab), "#RRGGBB".</summary>
     public string IslandColor { get; set; } = "#000000";
     public string IslandAccent { get; set; } = "#FFFFFF";
+    /// <summary>Tabs of the island's panel, in order (the ones left out are hidden).</summary>
+    public List<string> IslandTabs { get; set; } = new() { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
     /// <summary>Widgets on the panel's home tab, in order.</summary>
     public List<string> IslandWidgets { get; set; } = new() { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.

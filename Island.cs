@@ -1175,6 +1175,10 @@ internal sealed class IslandWindow : Window
             (IslandGlyphs.Tray, "Bandeja"), (ExtraGlyphs.Folder, "Arquivos"), (ExtraGlyphs.Clipboard, "Copiados"), (ExtraGlyphs.Timer, "Timer"),
         };
         public const int HomeTab = 0, MusicTab = 1, ShelfTab = 5;
+        /// <summary>Every tab's name, in the default order (Preferências lists these).</summary>
+        public static IEnumerable<string> TabNames => tabs.Select(t => t.name);
+        /// <summary>Visible tabs (ids into tabs), in the order chosen in Preferências.</summary>
+        private readonly int[] order;
         /// <summary>Tab the next panel opens on (files dragged in), instead of the last one used.</summary>
         public static int? Preselect;
         private readonly Brush chipOn;
@@ -1182,7 +1186,7 @@ internal sealed class IslandWindow : Window
         private readonly DocaConfig cfg;
         private readonly FrameworkElement anchor;
         private readonly Action dismiss, hold, release;
-        private readonly Border[] chips = new Border[tabs.Length];
+        private readonly Border?[] chips = new Border?[tabs.Length];
         private readonly Border body = new();
         private Flyout? lent;
         private int index = -1;
@@ -1215,9 +1219,12 @@ internal sealed class IslandWindow : Window
             Resources["SliderThumbBackgroundPressed"] = accentLow;
             chipOn = Frozen(new SolidColorBrush(ac == Colors.White ? Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x55, ac.R, ac.G, ac.B)));
 
+            order = cfg.IslandTabs.Select(name => Array.FindIndex(tabs, t => t.name == name)).Where(i => i >= 0).Distinct().ToArray();
+            if (order.Length == 0) order = Enumerable.Range(0, tabs.Length).ToArray();
+
             var header = new Grid { Margin = new Thickness(0, 0, 0, 12) };
             var row = new StackPanel { Orientation = Orientation.Horizontal };
-            for (int i = 0; i < tabs.Length; i++)
+            foreach (int i in order)
             {
                 int n = i;
                 // Icon-only tabs (name in the tooltip): a quiet toolbar instead of a row of labels.
@@ -1247,7 +1254,8 @@ internal sealed class IslandWindow : Window
                 // Sliders use the wheel themselves.
                 if (e.OriginalSource is DependencyObject d && FindSlider(d)) return;
                 e.Handled = true;
-                Select((index + (e.Delta < 0 ? 1 : tabs.Length - 1)) % tabs.Length);
+                int pos = Array.IndexOf(order, index);
+                Select(order[pos < 0 ? 0 : (pos + (e.Delta < 0 ? 1 : order.Length - 1)) % order.Length]);
             };
             Unloaded += (_, _) => Release();
             // Last tab used, except Música with nothing playing: the home widgets say more than "Nada tocando".
@@ -1255,7 +1263,8 @@ internal sealed class IslandWindow : Window
             {
                 if (index >= 0) return;
                 if (Preselect is int p) { Preselect = null; Select(p); return; }
-                Select(lastTab >= 0 && !(lastTab == MusicTab && !NowPlaying.HasSession) ? lastTab : HomeTab);
+                bool lastOk = order.Contains(lastTab) && !(lastTab == MusicTab && !NowPlaying.HasSession);
+                Select(lastOk ? lastTab : order.Contains(HomeTab) ? HomeTab : order[0]);
             };
         }
 
@@ -1277,8 +1286,9 @@ internal sealed class IslandWindow : Window
         /// <summary>Next tab; false when already on the last one.</summary>
         public bool Next()
         {
-            if (index >= tabs.Length - 1) return false;
-            Select(index + 1);
+            int pos = Array.IndexOf(order, index);
+            if (pos >= order.Length - 1) return false;
+            Select(order[pos + 1]);
             return true;
         }
 
@@ -1292,9 +1302,10 @@ internal sealed class IslandWindow : Window
         private void Select(int n)
         {
             if (n == index) return;
-            if (index >= 0) { chips[index].Background = null; BarFx.Prepare(chips[index]); }
+            // A hidden tab can still open (files dragged in, a widget's title): no chip lights up then.
+            if (index >= 0 && chips[index] is { } old) { old.Background = null; BarFx.Prepare(old); }
             index = lastTab = n;
-            chips[n].Background = chipOn;
+            if (chips[n] is { } chip) chip.Background = chipOn;
             Release();
 
             FrameworkElement content;
