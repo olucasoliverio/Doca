@@ -58,6 +58,7 @@ internal static class Island
         PrivacyWatch.Start();
         DownloadWatch.Start();
         Peripherals.Start();
+        WinNotifications.Start();
         Agents.Start();
     }
 }
@@ -268,6 +269,7 @@ internal sealed class IslandWindow : Window
         this.cfg = cfg;
         this.bar = bar;
         this.tracker = tracker;
+        WinNotifications.Tracker ??= tracker;
         this.monitor = monitor;
         standalone = bar == null;
         // Notch: glued to the top edge. Floating island: a gap below it, rounded all around.
@@ -355,6 +357,8 @@ internal sealed class IslandWindow : Window
             if (hovering) return;
             // A notice with an action (a finished download: show it in the folder) does that instead.
             if (hud is StatusActivity { Click: { } act }) { act(); hudTimer.Stop(); hud = null; Refresh(); return; }
+            // A Windows notification: open the app that sent it, like clicking the toast.
+            if (hud is NoticeActivity notice) { hudTimer.Stop(); hud = null; Refresh(); WinNotifications.Open(notice.N); return; }
             if (CanExpand) { hoverTimer.Stop(); Expand(); }
         };
         if (standalone)
@@ -585,7 +589,7 @@ internal sealed class IslandWindow : Window
         if (hovering) return; // the panel is open: don't cover it
         hud = a;
         trackHud = false;
-        hudTimer.Interval = TimeSpan.FromSeconds(a is StatusActivity s ? s.Seconds : 1.6);
+        hudTimer.Interval = TimeSpan.FromSeconds(a switch { StatusActivity s => s.Seconds, NoticeActivity => 5, _ => 1.6 });
         hudTimer.Stop();
         hudTimer.Start();
         Refresh();
@@ -637,7 +641,7 @@ internal sealed class IslandWindow : Window
         bool hasMusic = cfg.ShowNowPlaying && NowPlaying.HasSession;
         if (!hovering && dashboard != null) dashboard = null; // dropped from the tree below → borrowed content released
         // Hand cursor on the closed pill: it opens on click.
-        Cursor = !hovering && (CanExpand || hud is StatusActivity { Click: not null }) ? Cursors.Hand : null;
+        Cursor = !hovering && (CanExpand || hud is StatusActivity { Click: not null } || hud is NoticeActivity) ? Cursors.Hand : null;
 
         if (hovering && standalone)
         {
@@ -657,6 +661,7 @@ internal sealed class IslandWindow : Window
             Show(level, 260, 34);
         }
         else if (hud is StatusActivity sa) Show(new StatusView(sa), 320, 34);
+        else if (hud is NoticeActivity na) Show(new NoticeView(na.N), 380, 54);
         else if (trackHud && hasMusic)
         {
             track ??= new TrackView();
@@ -1272,6 +1277,28 @@ internal sealed class IslandWindow : Window
         }
     }
 
+    /// <summary>A Windows notification arriving: app icon, "App · title" and one line of text.</summary>
+    private sealed class NoticeView : Grid
+    {
+        public NoticeView(WinNotification n)
+        {
+            ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(48) });
+            ColumnDefinitions.Add(new ColumnDefinition());
+            var icon = new NoticeIcon(n, 24) { Margin = new Thickness(16, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+            Children.Add(icon);
+            var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 20, 0) };
+            bool titled = n.Title != n.App;
+            var head = new TextBlock { Text = titled ? n.Title : n.App, FontWeight = FontWeights.SemiBold, FontSize = 12.5, TextTrimming = TextTrimming.CharacterEllipsis };
+            text.Children.Add(head);
+            string line = string.Join(" ", n.Body.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            if (line.Length == 0 && titled) line = n.App;
+            if (line.Length > 0)
+                text.Children.Add(new TextBlock { Text = line, FontSize = 11.5, Foreground = IslandBrushes.Dim, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 0) });
+            Grid.SetColumn(text, 1);
+            Children.Add(text);
+        }
+    }
+
     /// <summary>Hover on a bar's island: the full player of the music panel.</summary>
     private sealed class PlayerShell : Border
     {
@@ -1294,8 +1321,9 @@ internal sealed class IslandWindow : Window
         {
             ("\uE80F", "Início"), (IslandGlyphs.Music, "Música"), (IslandGlyphs.Calendar, "Calendário"), (IslandGlyphs.Controls, "Controles"),
             (IslandGlyphs.Tray, "Bandeja"), (ExtraGlyphs.Folder, "Arquivos"), (ExtraGlyphs.Clipboard, "Copiados"), (ExtraGlyphs.Timer, "Timer"),
+            (NotificationsView.Bell, "Notificações"),
         };
-        public const int HomeTab = 0, MusicTab = 1, ShelfTab = 5;
+        public const int HomeTab = 0, MusicTab = 1, ShelfTab = 5, NotificationsTab = 8;
         /// <summary>Every tab's name, in the default order (Preferências lists these).</summary>
         public static IEnumerable<string> TabNames => tabs.Select(t => t.name);
         /// <summary>Visible tabs (ids into tabs), in the order chosen in Preferências.</summary>
@@ -1353,7 +1381,8 @@ internal sealed class IslandWindow : Window
                 // Icon-only tabs (name in the tooltip): a quiet toolbar instead of a row of labels.
                 var chip = new Border
                 {
-                    Child = Glyph(tabs[i].glyph, 15), Width = 36, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 2, 0),
+                    // 32+2 wide: all nine tabs plus the three round buttons fit the 404 DIP header.
+                    Child = Glyph(tabs[i].glyph, 15), Width = 32, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(0, 0, 2, 0),
                     Cursor = Cursors.Hand, ToolTip = tabs[i].name,
                 };
                 BarFx.Prepare(chip);
@@ -1458,6 +1487,7 @@ internal sealed class IslandWindow : Window
                         : Empty("O histórico está desligado (Preferências → Topo da tela).");
                     break;
                 case 7: content = new TimerView(); break;
+                case NotificationsTab: content = new NotificationsView(dismiss); break;
                 default: content = TrayGrid(); break;
             }
             body.Child = content;

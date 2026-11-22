@@ -330,6 +330,8 @@ internal sealed class SettingsWindow : Window
                 () => cfg.TrayIconsMonochrome, v => { cfg.TrayIconsMonochrome = v; Changed(Apply.Screens); })),
         Section("Avisos e recursos"),
         Card(
+            Toggle("Notificações do Windows", "Mensagens e avisos dos apps aparecem na ilha por alguns segundos (clique para abrir o app) e ficam na aba Notificações. Se os balões do Windows também aparecem, ligue o Não Incomodar do Windows: a ilha continua mostrando.",
+                () => cfg.IslandNotifications, v => { cfg.IslandNotifications = v; Changed(Apply.Screens); }),
             Toggle("Histórico do que você copia", "Aba Copiados: textos, imagens e arquivos copiados, para copiar de novo. Fica só na memória (os textos fixados são salvos). Senhas copiadas de gerenciadores de senha não entram.",
                 () => cfg.IslandClipboard, v => { cfg.IslandClipboard = v; if (!v) ClipboardHistory.Clear(); Changed(Apply.Screens); }),
             Toggle("Câmera e microfone em uso", "Um ponto verde (câmera) ou laranja (microfone) na ilha enquanto algum app usa, e o nome do app quando começa.",
@@ -350,7 +352,7 @@ internal sealed class SettingsWindow : Window
     {
         ["Do tema"] = "#FFFFFF", ["Azul"] = "#0A84FF", ["Verde"] = "#30D158", ["Laranja"] = "#FF9F0A", ["Rosa"] = "#FF375F", ["Roxo"] = "#BF5AF2", ["Amarelo"] = "#FFD60A",
     };
-    private static readonly string[] AllTabs = { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
+    private static readonly string[] AllTabs = { "Início", "Notificações", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
 
     /// <summary>Theme and accent as clickable swatches (a list of names said nothing about the colors).</summary>
     private Border ThemeCard()

@@ -90,7 +90,11 @@ internal sealed class DocaConfig
     public string IslandColor { get; set; } = "#000000";
     public string IslandAccent { get; set; } = "#FFFFFF";
     /// <summary>Tabs of the island's panel, in order (the ones left out are hidden).</summary>
-    public List<string> IslandTabs { get; set; } = new() { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
+    public List<string> IslandTabs { get; set; } = new() { "Início", "Notificações", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
+    /// <summary>The Notificações tab was offered once (added to configs saved before it existed).</summary>
+    public bool NotificationsTabAdded { get; set; }
+    /// <summary>Windows notifications (toasts) on the island and in the Notificações tab.</summary>
+    public bool IslandNotifications { get; set; } = true;
     /// <summary>Widgets on the panel's home tab, in order.</summary>
     public List<string> IslandWidgets { get; set; } = new() { "Música", "Calendário", "Sistema", "Timer", "Baterias", "Downloads", "Copiados" };
     /// <summary>The Baterias widget was offered once (added to configs saved before it existed).</summary>
@@ -165,6 +169,15 @@ internal sealed class DocaConfig
                 cfg.IslandWidgets.Insert(at >= 0 ? at + 1 : cfg.IslandWidgets.Count, "Baterias");
             }
             cfg.BatteriesWidgetAdded = true;
+        }
+        if (!cfg.NotificationsTabAdded)
+        {
+            if (!cfg.IslandTabs.Contains("Notificações"))
+            {
+                int at = cfg.IslandTabs.IndexOf("Início");
+                cfg.IslandTabs.Insert(at + 1, "Notificações");
+            }
+            cfg.NotificationsTabAdded = true;
         }
         cfg.Save();
         return cfg;
