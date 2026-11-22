@@ -306,7 +306,8 @@ internal static class PrivacyWatch
                     {
                         using var app = k.OpenSubKey(sub);
                         // "C:#Program Files#Discord#Discord.exe"
-                        if (app != null && Active(app)) return Path.GetFileNameWithoutExtension(sub.Replace('#', '\\'));
+                        var exe = sub.Replace('#', '\\');
+                        if (app != null && Active(app) && Running(exe)) return Path.GetFileNameWithoutExtension(exe);
                     }
                 }
                 else if (Active(k)) return name.Split('_')[0].Split('.').Last(); // "Microsoft.WindowsCamera_8wekyb3d8bbwe"
@@ -316,8 +317,29 @@ internal static class PrivacyWatch
         return null;
     }
 
+    /// <summary>
+    /// Started and not stopped. An app that crashed or was killed never writes the stop time, so its entry says
+    /// "in use" forever: only uses that began since the PC started count.
+    /// </summary>
     private static bool Active(RegistryKey k) =>
-        k.GetValue("LastUsedTimeStart") is long start && start != 0 && k.GetValue("LastUsedTimeStop") is long stop && stop == 0;
+        k.GetValue("LastUsedTimeStart") is long start && start != 0 && k.GetValue("LastUsedTimeStop") is long stop && stop == 0
+        && DateTime.FromFileTime(start) > BootTime;
+
+    private static readonly DateTime BootTime = DateTime.Now - TimeSpan.FromMilliseconds(Environment.TickCount64);
+
+    /// <summary>The program is actually open (a crash in this same session would also leave a stale entry).</summary>
+    private static bool Running(string exe)
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName(Path.GetFileNameWithoutExtension(exe)))
+        {
+            using (p)
+            {
+                try { if (string.Equals(p.MainModule?.FileName, exe, StringComparison.OrdinalIgnoreCase)) return true; }
+                catch { return true; } // elevated or protected process: the same name is good enough
+            }
+        }
+        return false;
+    }
 }
 
 #endregion
