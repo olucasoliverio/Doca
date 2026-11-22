@@ -16,10 +16,14 @@ internal sealed class AppMixer : StackPanel
 {
     private const string IconFont = "Segoe Fluent Icons, Segoe MDL2 Assets";
     private static int shown;
+    /// <summary>Open or closed, remembered while Doca runs (shared by the island and the bar's panel).</summary>
+    private static bool expanded;
     private readonly DispatcherTimer meters = new(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(66) };
     private readonly DispatcherTimer apps = new(DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
     private readonly Dictionary<string, Row> rows = new();
-    private readonly TextBlock caption;
+    private readonly StackPanel body = new();
+    private readonly TextBlock chevron = new() { FontFamily = new FontFamily(IconFont), FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.6 };
+    private bool running;
 
     private sealed class Row
     {
@@ -31,39 +35,79 @@ internal sealed class AppMixer : StackPanel
         public bool Muted;
     }
 
-    public AppMixer(string? title = "Apps")
+    /// <summary>
+    /// Starts closed: a "Volume por app" line with a chevron. Closed, nothing is read from Core Audio at all;
+    /// opening starts the refresh (and the island's Controles tab stays short).
+    /// </summary>
+    public AppMixer()
     {
-        caption = new TextBlock { Text = title ?? "", FontSize = 11, Opacity = 0.55, Margin = new Thickness(0, 10, 0, 2), Visibility = title == null ? Visibility.Collapsed : Visibility.Visible };
+        var header = new DockPanel { Margin = new Thickness(0, 10, 0, 2), Background = Brushes.Transparent, Cursor = Cursors.Hand, LastChildFill = false };
+        DockPanel.SetDock(chevron, Dock.Right);
+        header.Children.Add(chevron);
+        header.Children.Add(new TextBlock { Text = "Volume por app", FontSize = 11, Opacity = 0.55, VerticalAlignment = VerticalAlignment.Center });
+        header.MouseEnter += (_, _) => chevron.Opacity = 1;
+        header.MouseLeave += (_, _) => chevron.Opacity = 0.6;
+        header.MouseLeftButtonUp += (_, e) => { e.Handled = true; expanded = !expanded; Apply(); };
+        Children.Add(header);
+        Children.Add(body);
+
         meters.Tick += (_, _) => UpdateMeters();
         apps.Tick += (_, _) => Fill();
-        Loaded += (_, _) => { shown++; Fill(); apps.Start(); meters.Start(); };
-        Unloaded += (_, _) =>
-        {
-            apps.Stop();
-            meters.Stop();
-            if (--shown <= 0) { shown = 0; AppAudio.Drop(); }
-        };
+        Loaded += (_, _) => Apply();
+        Unloaded += (_, _) => Stop();
+    }
+
+    private void Apply()
+    {
+        chevron.Text = expanded ? "" : ""; // ⌄ open, › closed
+        body.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+        if (expanded && IsLoaded) Start();
+        else Stop();
+    }
+
+    private void Start()
+    {
+        if (running) return;
+        running = true;
+        shown++;
+        Fill();
+        apps.Start();
+        meters.Start();
+    }
+
+    private void Stop()
+    {
+        if (!running) return;
+        running = false;
+        apps.Stop();
+        meters.Stop();
+        body.Children.Clear();
+        rows.Clear();
+        if (--shown <= 0) { shown = 0; AppAudio.Drop(); }
     }
 
     private void Fill()
     {
         var list = AppAudio.List();
         // Same apps as before: update in place (a rebuild would drop a slider being dragged).
-        if (list.Select(a => a.Key).SequenceEqual(rows.Keys))
+        if (rows.Count > 0 && list.Select(a => a.Key).SequenceEqual(rows.Keys))
         {
             foreach (var a in list) Update(rows[a.Key], a);
             return;
         }
-        Children.Clear();
+        body.Children.Clear();
         rows.Clear();
-        if (list.Count == 0) return;
-        Children.Add(caption);
+        if (list.Count == 0)
+        {
+            body.Children.Add(new TextBlock { Text = "Nenhum app com som agora.", FontSize = 11.5, Opacity = 0.55, Margin = new Thickness(0, 2, 0, 2) });
+            return;
+        }
         foreach (var a in list)
         {
             var row = Build(a);
             rows[a.Key] = row;
             Update(row, a);
-            Children.Add(row.Root);
+            body.Children.Add(row.Root);
         }
     }
 
