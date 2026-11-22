@@ -56,6 +56,7 @@ Ocorrências ficam em `%APPDATA%\Doca\log.txt`.
 | `Island.cs` | Ilha dinâmica: entalhe no topo (relógio, música, avisos de volume, brilho, fones, Caps Lock) e o painel com abas |
 | `IslandWidgets.cs` | Aba Início da ilha: grade de widgets (música, calendário, sistema, timer, downloads, copiados) e o monitor de CPU/memória/disco/rede |
 | `Peripherals.cs` | Bateria do mouse Rapoo e do headset MCHOSE V9 PRO (receptores 2.4 GHz, protocolos HID dos fabricantes) |
+| `IslandMore.cs` | Mudo do microfone (Ctrl+Alt+M), Claude Code na ilha (`Doca.exe --claude`/`--notify` por pipe), atalhos rápidos (recorte, seletor de cor, modo de energia) |
 | `IslandExtras.cs` | Extras da ilha: prateleira de arquivos, histórico do que foi copiado, câmera/microfone em uso, downloads e timer |
 | `Flyouts.cs` | Painéis de calendário, som, Wi-Fi e Bluetooth |
 | `ControlCenter.cs` | Central de Controle, brilho por DDC/CI (`DdcMonitor`), modo escuro (`Theme`) |

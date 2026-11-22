@@ -161,6 +161,14 @@ internal sealed class SettingsWindow : Window
                         Changed(Apply.Screens);
                     }))),
         Card(
+            Row("Formato", "Entalhe: preso à borda de cima, como a câmera de um notebook. Ilha: flutuando um pouco abaixo da borda, arredondada em volta.",
+                Choice(new[] { "Entalhe", "Ilha flutuante" }, () => cfg.IslandShape == "Ilha" ? "Ilha flutuante" : "Entalhe",
+                    v => { cfg.IslandShape = v == "Ilha flutuante" ? "Ilha" : "Entalhe"; Changed(Apply.Screens); })),
+            SliderRow("Distância do topo (ilha flutuante)", 2, 30, () => cfg.IslandGap, v => { cfg.IslandGap = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
+            Row("Com a ilha fechada", "O que aparece no centro da ilha.",
+                Choice(new[] { "Hora", "Data e hora", "Hora e CPU" }, () => cfg.IslandRestFace, v => { cfg.IslandRestFace = v; Changed(Apply.Screens); })),
+            Toggle("Cor da música na ilha", "Enquanto algo toca, a cor da capa do álbum aparece suavemente na parte de baixo da ilha.",
+                () => cfg.IslandMusicTint, v => { cfg.IslandMusicTint = v; Changed(Apply.Screens); }),
             Row("Tamanho", "Da ilha fechada.",
                 Choice(new[] { "Pequena", "Média", "Grande" }, () => cfg.IslandSize, v => { cfg.IslandSize = v; Changed(Apply.Screens); })),
             SliderRow("Cantos do painel", 16, 56, () => cfg.IslandCorner, v => { cfg.IslandCorner = Math.Round(v); Changed(Apply.Screens); }, v => $"{v:0} px"),
@@ -185,7 +193,13 @@ internal sealed class SettingsWindow : Window
             Toggle("Downloads do navegador", "O tamanho baixado aparece na ilha; ao terminar, clique no aviso para ver o arquivo na pasta.",
                 () => cfg.IslandDownloads, v => { cfg.IslandDownloads = v; Changed(Apply.Screens); }),
             Toggle("Bateria do mouse e do headset", "Mouse Rapoo e headset MCHOSE V9 PRO sem fio (2.4 GHz): cartão Baterias no Início, aviso ao começar a carregar e abaixo de 20%, 10% e 5%, e a porcentagem na ilha quando estiver baixa.",
-                () => cfg.IslandPeripherals, v => { cfg.IslandPeripherals = v; Changed(Apply.Screens); })),
+                () => cfg.IslandPeripherals, v => { cfg.IslandPeripherals = v; Changed(Apply.Screens); }),
+            Toggle("Ctrl+Alt+M muta o microfone", "Muta todos os microfones de uma vez (vale para qualquer app: Discord, jogo, chamada). Um microfone vermelho fica na ilha enquanto estiver mudo.",
+                () => cfg.IslandMicHotkey, v => { cfg.IslandMicHotkey = v; Changed(Apply.Hotkeys); }),
+            Toggle("Claude Code na ilha", "Mostra quando o Claude está trabalhando e avisa quando ele precisa de você ou termina uma tarefa longa. Usa os hooks do Claude Code (Doca.exe --claude).",
+                () => cfg.IslandAgents, v => { cfg.IslandAgents = v; Changed(Apply.Screens); }),
+            Toggle("Esconder de prints e gravações", "A ilha não aparece em capturas de tela, gravações nem transmissões (OBS, Discord).",
+                () => cfg.IslandHideFromCapture, v => { cfg.IslandHideFromCapture = v; Changed(Apply.Screens); })),
         Card(
             Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Arraste arquivos até a ilha para guardá-los na aba Arquivos e arraste-os de lá quando for usar. Botão direito na ilha (ou ⋯ no painel): menu do sistema. A ilha também avisa volume, brilho, nova música, fones Bluetooth (com a bateria), Caps Lock, downloads e o fim do timer.")));
 

@@ -95,6 +95,21 @@ internal sealed class DocaConfig
     public bool BatteriesWidgetAdded { get; set; }
     /// <summary>Battery of the wireless mouse and headset (2.4 GHz receivers) on the island.</summary>
     public bool IslandPeripherals { get; set; } = true;
+    /// <summary>Ctrl+Alt+M mutes every microphone.</summary>
+    public bool IslandMicHotkey { get; set; } = true;
+    /// <summary>Coding agents (Claude Code hooks → "Doca.exe --claude …") on the island.</summary>
+    public bool IslandAgents { get; set; } = true;
+    /// <summary>"Entalhe" (glued to the top edge) or "Ilha" (floating, IslandGap below the edge).</summary>
+    public string IslandShape { get; set; } = "Entalhe";
+    public double IslandGap { get; set; } = 8;
+    /// <summary>What the closed island shows: "Hora", "Data e hora" or "Hora e CPU".</summary>
+    public string IslandRestFace { get; set; } = "Hora";
+    /// <summary>Panel tab to reopen on, kept across restarts.</summary>
+    public string? IslandLastTab { get; set; }
+    /// <summary>Keep the island out of screenshots and screen recordings.</summary>
+    public bool IslandHideFromCapture { get; set; } = false;
+    /// <summary>The playing album's color bleeds into the island.</summary>
+    public bool IslandMusicTint { get; set; } = true;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;

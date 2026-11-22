@@ -70,6 +70,7 @@ public partial class App : Application
         Tray.Start();
         NowPlaying.Start();
         WindowCycler.Start(cfg, tracker);
+        MicMute.Start(cfg);
         SpotlightHotkey.Start(cfg);
         CornerWindow.IsFullscreen = tracker.IsFullscreen;
         CreateScreens();
@@ -184,6 +185,7 @@ public partial class App : Application
                 break;
             case Apply.Hotkeys:
                 WindowCycler.Start(app.cfg!, app.tracker!);
+                MicMute.Start(app.cfg!);
                 SpotlightHotkey.Start(app.cfg!);
                 break;
             case Apply.Taskbar:

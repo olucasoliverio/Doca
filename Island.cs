@@ -58,6 +58,7 @@ internal static class Island
         PrivacyWatch.Start();
         DownloadWatch.Start();
         Peripherals.Start();
+        Agents.Start();
     }
 }
 
@@ -211,6 +212,7 @@ internal sealed class IslandWindow : Window
 
     [DllImport("user32.dll")] private static extern int SetWindowRgn(IntPtr h, IntPtr rgn, bool redraw);
     [DllImport("gdi32.dll")] private static extern IntPtr CreateRectRgn(int l, int t, int r, int b);
+    [DllImport("user32.dll")] private static extern bool SetWindowDisplayAffinity(IntPtr h, uint affinity);
 
     private readonly DocaConfig cfg;
     private readonly Window? bar;
@@ -218,6 +220,10 @@ internal sealed class IslandWindow : Window
     private IntPtr monitor;
     private readonly bool standalone;
     private readonly double inset;
+    private readonly bool floating;
+    private readonly Color baseColor;
+    private readonly GradientStop tintStop;
+    private Color tintTarget;
     // A notch, not a floating pill: square top glued to the screen edge, flared "shoulders" into the edge and
     // squircle bottom corners. Drawn as one path in window coordinates; the content is clipped to the body.
     private readonly System.Windows.Shapes.Path pill = new() { Fill = Brushes.Black, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Visibility = Visibility.Collapsed, IsHitTestVisible = false };
@@ -262,9 +268,14 @@ internal sealed class IslandWindow : Window
         this.tracker = tracker;
         this.monitor = monitor;
         standalone = bar == null;
-        inset = 0; // glued to the top edge
+        // Notch: glued to the top edge. Floating island: a gap below it, rounded all around.
+        floating = standalone && cfg.IslandShape == "Ilha";
+        inset = floating ? Math.Clamp(cfg.IslandGap, 2, 40) : 0;
         rest = new RestView(standalone, 14 * SizeScale);
-        pill.Fill = Frozen(new SolidColorBrush(IslandBrushes.Parse(cfg.IslandColor, Colors.Black)));
+        // Island color on top, fading into the playing album's color at the bottom (see UpdateTint).
+        baseColor = IslandBrushes.Parse(cfg.IslandColor, Colors.Black);
+        tintStop = new GradientStop(baseColor, 1);
+        pill.Fill = new LinearGradientBrush(new GradientStopCollection { new GradientStop(baseColor, 0), new GradientStop(baseColor, 0.35), tintStop }, 90);
         Title = "Doca Island";
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.NoResize;
@@ -296,6 +307,8 @@ internal sealed class IslandWindow : Window
         SourceInitialized += (_, _) =>
         {
             Glass.MakeOverlay(this);
+            // Out of screenshots and recordings (Windows 10 2004+), if asked.
+            if (cfg.IslandHideFromCapture) SetWindowDisplayAffinity(new WindowInteropHelper(this).Handle, 0x11 /* WDA_EXCLUDEFROMCAPTURE */);
             hwnd = new WindowInteropHelper(this).Handle;
             SetRegion(0, 0);
             if (standalone && cfg.IslandReserveTop)
@@ -384,6 +397,9 @@ internal sealed class IslandWindow : Window
         NowPlaying.Changed += OnMedia;
         // Pill badges: camera/microphone dots, timer countdown, download size.
         PrivacyWatch.Changed += OnBadges;
+        MicMute.Changed += OnBadges;
+        Agents.Changed += OnBadges;
+        if (cfg.IslandRestFace == "Hora e CPU") SystemStats.Subscribe(OnBadges);
         IslandTimer.Changed += OnBadges;
         DownloadWatch.Changed += OnBadges;
         Peripherals.Changed += OnBadges;
@@ -392,6 +408,9 @@ internal sealed class IslandWindow : Window
             Island.Activity -= OnActivity;
             NowPlaying.Changed -= OnMedia;
             PrivacyWatch.Changed -= OnBadges;
+            MicMute.Changed -= OnBadges;
+            Agents.Changed -= OnBadges;
+            if (cfg.IslandRestFace == "Hora e CPU") SystemStats.Unsubscribe(OnBadges);
             IslandTimer.Changed -= OnBadges;
             DownloadWatch.Changed -= OnBadges;
             Peripherals.Changed -= OnBadges;
@@ -407,6 +426,8 @@ internal sealed class IslandWindow : Window
             host.Children.Clear(); // releases a panel's borrowed content
         };
         lastTrack = NowPlaying.HasSession ? NowPlaying.Title : null;
+        tintTarget = baseColor;
+        UpdateTint();
         Refresh();
     }
 
@@ -489,7 +510,11 @@ internal sealed class IslandWindow : Window
     private void UpdateClock()
     {
         var now = DateTime.Now;
-        rest.Clock = cfg.ClockShowSeconds ? now.ToString("HH:mm:ss") : now.ToString("HH:mm");
+        string time = cfg.ClockShowSeconds ? now.ToString("HH:mm:ss") : now.ToString("HH:mm");
+        // The microphone can be muted elsewhere too (Windows settings, a headset button): checked each minute.
+        if (now.Second == 0 || cfg.ClockShowSeconds && now.Second % 30 == 0) MicMute.Refresh();
+        // "Data e hora": the short weekday and day before the time ("sáb 21  14:05").
+        rest.Clock = cfg.IslandRestFace == "Data e hora" ? $"{now.ToString("ddd d", CultureInfo.CurrentCulture).TrimEnd('.')}   {time}" : time;
         // The pill only has room for the time; the full date is a hover away.
         string date = now.ToString("D", CultureInfo.CurrentCulture);
         rest.ToolTip = char.ToUpper(date[0]) + date[1..];
@@ -573,7 +598,28 @@ internal sealed class IslandWindow : Window
         if (!standalone && !NowPlaying.HasSession && hovering) hovering = false;
         rest.Update(cfg.ShowNowPlaying);
         track?.Update();
+        UpdateTint();
         Refresh();
+    }
+
+    /// <summary>While music plays, the album's color bleeds into the bottom of the island (subtle, animated).</summary>
+    private void UpdateTint()
+    {
+        bool on = cfg.IslandMusicTint && cfg.ShowNowPlaying && NowPlaying.HasSession && NowPlaying.Playing;
+        var target = baseColor;
+        if (on)
+        {
+            var art = ArtColor.Of(NowPlaying.Art);
+            // White means a gray cover: no tint then.
+            if (art != Colors.White)
+            {
+                const double k = 0.30;
+                target = Color.FromRgb((byte)(baseColor.R + (art.R - baseColor.R) * k), (byte)(baseColor.G + (art.G - baseColor.G) * k), (byte)(baseColor.B + (art.B - baseColor.B) * k));
+            }
+        }
+        if (target == tintTarget) return;
+        tintTarget = target;
+        tintStop.BeginAnimation(GradientStop.ColorProperty, new ColorAnimation(target, TimeSpan.FromMilliseconds(700)));
     }
 
     /// <summary>Picks what the pill shows: panel/player (hover) › activity › new track › rest › nothing.</summary>
@@ -744,20 +790,34 @@ internal sealed class IslandWindow : Window
         double pw = Math.Max(0, w), ph = Math.Max(0, h);
         double r = Math.Min(Radius, Math.Min(pw, ph) / 2);
         double cx = MaxW / 2;
-        pill.Data = Notch(cx - pw / 2, cx + pw / 2, ph, r, Shoulder(r));
+        // Floating: rounded on top too (a bit less than below, so the panel doesn't look like a bubble).
+        double top = floating ? Math.Min(r, 24) : 0;
+        pill.Data = Notch(cx - pw / 2, cx + pw / 2, ph, r, floating ? 0 : Shoulder(r), top);
         // The content keeps its final layout; the clip reveals it as the notch grows.
         double hw = double.IsNaN(host.Width) ? pw : host.Width;
-        host.Clip = Notch((hw - pw) / 2, (hw + pw) / 2, ph, r, 0);
+        host.Clip = Notch((hw - pw) / 2, (hw + pw) / 2, ph, r, 0, top);
     }
 
     /// <summary>
     /// Square top at y=0, flared shoulders of width s, and squircle bottom corners (superellipse, exponent 2.8,
     /// a bit squarer than a circle, like Apple's "continuous" corners).
     /// </summary>
-    private static Geometry Notch(double l, double r, double b, double R, double s)
+    /// <param name="top">Radius of the top corners (floating island), 0 for the notch's square top.</param>
+    private static Geometry Notch(double l, double r, double b, double R, double s, double top = 0)
     {
         var g = new StreamGeometry();
-        if (r - l > 0 && b > 0)
+        if (r - l > 0 && b > 0 && top > 0)
+        {
+            using var c = g.Open();
+            top = Math.Min(top, Math.Min(r - l, b) / 2);
+            c.BeginFigure(new Point(l + top, 0), true, true);
+            c.LineTo(new Point(r - top, 0), true, true);
+            Corner(c, r - top, top, top, -Math.PI / 2);
+            Corner(c, r - R, b - R, R, 0);
+            Corner(c, l + R, b - R, R, Math.PI / 2);
+            Corner(c, l + top, top, top, Math.PI);
+        }
+        else if (r - l > 0 && b > 0)
         {
             using var c = g.Open();
             double fillet = Math.Min(s, b / 2);
@@ -792,7 +852,7 @@ internal sealed class IslandWindow : Window
         if (width <= 0 || height <= 0) { SetWindowRgn(hwnd, CreateRectRgn(0, 0, 0, 0), true); return; }
         int full = (int)Math.Round(MaxW * scale);
         // Shoulders included.
-        double s = Shoulder(Math.Min(Radius, Math.Min(width, height) / 2));
+        double s = floating ? 0 : Shoulder(Math.Min(Radius, Math.Min(width, height) / 2));
         int pw = (int)Math.Ceiling((width + 2 * s) * scale), ph = (int)Math.Ceiling(height * scale), top = (int)Math.Round(inset * scale);
         int left = (full - pw) / 2;
         // The window owns the region afterwards; no DeleteObject.
@@ -844,9 +904,13 @@ internal sealed class IslandWindow : Window
         };
         private readonly System.Windows.Shapes.Ellipse camDot = Dot(IslandBrushes.Green), micDot = Dot(IslandBrushes.Orange);
         private readonly TextBlock timerText = BadgeText(), downloadText = BadgeText();
-        private readonly StackPanel timerBadge, downloadBadge, batteryBadge;
+        private readonly StackPanel timerBadge, downloadBadge, batteryBadge, agentBadge, cpuBadge;
+        private readonly TextBlock micMuted = Glyph(Glyphs.MicOff, 12), agentText = BadgeText(), agentGlyph = Glyph(Glyphs.Agent, 12), cpuText = BadgeText();
+        private readonly bool showCpu;
         private readonly TextBlock batteryText = BadgeText(), batteryGlyph = Glyph("", 11);
         private bool? wasPlaying;
+        private readonly DoubleAnimation agentPulse;
+        private bool pulsing;
 
         public RestView(bool withClock, double clockSize)
         {
@@ -864,12 +928,28 @@ internal sealed class IslandWindow : Window
             pausedArt.Margin = new Thickness(0, 0, 8, 0);
             pausedArt.ToolTip = "Pausado";
             timerBadge = Badge(ExtraGlyphs.Timer, timerText);
+            showCpu = Island.Config?.IslandRestFace == "Hora e CPU";
+            cpuBadge = Badge("\uE9D9", cpuText);
+            // Microphone muted (Ctrl+Alt+M): a red crossed mic before the clock.
+            micMuted.Foreground = IslandBrushes.Red;
+            micMuted.Margin = new Thickness(0, 0, 8, 0);
+            micMuted.ToolTip = "Microfone mudo (Ctrl+Alt+M)";
+            // A coding agent at work (pulsing) or waiting for you (orange).
+            agentBadge = new StackPanel { Orientation = Orientation.Horizontal };
+            agentBadge.Children.Add(agentGlyph);
+            agentBadge.Children.Add(agentText);
+            agentText.MaxWidth = 90;
+            agentText.TextTrimming = TextTrimming.CharacterEllipsis;
+            var pulse = new DoubleAnimation(1, 0.35, TimeSpan.FromSeconds(0.9)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
+            Timeline.SetDesiredFrameRate(pulse, 20);
+            agentPulse = pulse;
             // Low battery of the mouse/headset (≤ 20 %), in orange.
             batteryBadge = new StackPanel { Orientation = Orientation.Horizontal };
             batteryGlyph.Foreground = batteryText.Foreground = IslandBrushes.Orange;
             batteryBadge.Children.Add(batteryGlyph);
             batteryBadge.Children.Add(batteryText);
             downloadBadge = Badge(ExtraGlyphs.Download, downloadText);
+            center.Children.Add(micMuted);
             center.Children.Add(camDot);
             center.Children.Add(micDot);
             center.Children.Add(pausedArt);
@@ -877,6 +957,8 @@ internal sealed class IslandWindow : Window
             center.Children.Add(timerBadge);
             center.Children.Add(downloadBadge);
             center.Children.Add(batteryBadge);
+            center.Children.Add(cpuBadge);
+            center.Children.Add(agentBadge);
             Children.Add(playing);
             Children.Add(center);
         }
@@ -927,6 +1009,21 @@ internal sealed class IslandWindow : Window
             downloadBadge.Visibility = dl ? Visibility.Visible : Visibility.Collapsed;
             downloadText.Text = !dl ? "" : DownloadWatch.Speed > 0 ? DownloadWatch.Rate(DownloadWatch.Speed) : DownloadWatch.Size(DownloadWatch.Bytes);
             downloadBadge.ToolTip = dl ? $"{DownloadWatch.Size(DownloadWatch.Bytes)} baixados" : null;
+            micMuted.Visibility = MicMute.Muted ? Visibility.Visible : Visibility.Collapsed;
+            cpuBadge.Visibility = showCpu ? Visibility.Visible : Visibility.Collapsed;
+            if (showCpu) cpuText.Text = $"{SystemStats.Cpu * 100:0}%";
+            var agent = Island.Config?.IslandAgents != false ? Agents.Current : null;
+            agentBadge.Visibility = agent != null ? Visibility.Visible : Visibility.Collapsed;
+            if (agent != null)
+            {
+                bool waiting = agent.State == "waiting";
+                agentText.Text = Agents.Label(agent.Project);
+                agentGlyph.Foreground = agentText.Foreground = waiting ? IslandBrushes.Orange : Brushes.White;
+                agentBadge.ToolTip = $"Claude · {Agents.Label(agent.Project)}: {(waiting ? "precisa de você" : "trabalhando")}";
+                if (!waiting && !pulsing) { agentGlyph.BeginAnimation(OpacityProperty, agentPulse); pulsing = true; }
+                else if (waiting && pulsing) { agentGlyph.BeginAnimation(OpacityProperty, null); pulsing = false; }
+            }
+            else if (pulsing) { agentGlyph.BeginAnimation(OpacityProperty, null); pulsing = false; }
             var low = Island.Config?.IslandPeripherals != false ? Peripherals.Low() : null;
             batteryBadge.Visibility = low != null ? Visibility.Visible : Visibility.Collapsed;
             if (low != null)
@@ -1237,6 +1334,8 @@ internal sealed class IslandWindow : Window
             Resources["SliderThumbBackgroundPressed"] = accentLow;
             chipOn = Frozen(new SolidColorBrush(ac == Colors.White ? Color.FromArgb(0x2E, 0xFF, 0xFF, 0xFF) : Color.FromArgb(0x55, ac.R, ac.G, ac.B)));
 
+            // The tab used last, also across restarts.
+            if (lastTab < 0 && cfg.IslandLastTab is { } saved) lastTab = Array.FindIndex(tabs, t => t.name == saved);
             order = cfg.IslandTabs.Select(name => Array.FindIndex(tabs, t => t.name == name)).Where(i => i >= 0).Distinct().ToArray();
             if (order.Length == 0) order = Enumerable.Range(0, tabs.Length).ToArray();
 
@@ -1323,6 +1422,7 @@ internal sealed class IslandWindow : Window
             // A hidden tab can still open (files dragged in, a widget's title): no chip lights up then.
             if (index >= 0 && chips[index] is { } old) { old.Background = null; BarFx.Prepare(old); }
             index = lastTab = n;
+            if (cfg.IslandLastTab != tabs[n].name) { cfg.IslandLastTab = tabs[n].name; cfg.Save(); }
             if (chips[n] is { } chip) chip.Background = chipOn;
             Release();
 
@@ -1336,7 +1436,13 @@ internal sealed class IslandWindow : Window
                         : Empty("Nada tocando agora.");
                     break;
                 case 2: content = Borrow(new CalendarFlyout(cfg)); break;
-                case 3: content = Borrow(new ControlCenterFlyout(cfg, embedded: true)); break;
+                case 3:
+                    // Control Center plus a row of quick actions (snip, color picker, power mode, night light).
+                    var controls = new StackPanel();
+                    controls.Children.Add(Borrow(new ControlCenterFlyout(cfg, embedded: true)));
+                    controls.Children.Add(new QuickActions(dismiss));
+                    content = controls;
+                    break;
                 case 5: content = new ShelfView(hold, release); break;
                 case 6:
                     content = cfg.IslandClipboard

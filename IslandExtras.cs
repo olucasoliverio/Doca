@@ -573,6 +573,7 @@ internal static class IslandBrushes
     public static readonly Brush Dim = F(Color.FromArgb(0x99, 0xFF, 0xFF, 0xFF));
     public static readonly Brush Faint = F(Color.FromArgb(0x30, 0xFF, 0xFF, 0xFF));
     public static readonly Brush Orange = F(Color.FromRgb(0xFF, 0x9F, 0x0A));
+    public static readonly Brush Red = F(Color.FromRgb(0xFF, 0x45, 0x3A));
     public static readonly Brush Green = F(Color.FromRgb(0x30, 0xD1, 0x58));
 
     private static string? accentKey;
@@ -629,6 +630,8 @@ internal sealed class ShelfView : StackPanel
 {
     private readonly WrapPanel grid = new();
     private readonly Action hold, release;
+    /// <summary>Tiles picked with a click: a drag of any of them carries them all.</summary>
+    private readonly List<string> selected = new();
 
     /// <param name="hold">Called while a file is being dragged out (the island must stay open).</param>
     public ShelfView(Action hold, Action release)
@@ -657,12 +660,25 @@ internal sealed class ShelfView : StackPanel
             grid.Children.Add(zone);
             return;
         }
+        selected.RemoveAll(x => !Shelf.Items.Contains(x));
         foreach (var p in Shelf.Items) grid.Children.Add(Tile(p));
         var footer = new DockPanel { Margin = new Thickness(2, 8, 2, 0), LastChildFill = false };
-        footer.Children.Add(IslandBrushes.Text($"{Shelf.Items.Count} {(Shelf.Items.Count == 1 ? "item" : "itens")} · arraste para usar", 11.5, IslandBrushes.Dim));
-        var clear = IslandBrushes.Button(IslandBrushes.Text("Limpar", 11.5), Shelf.Clear);
-        DockPanel.SetDock(clear, Dock.Right);
-        footer.Children.Add(clear);
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal };
+        DockPanel.SetDock(buttons, Dock.Right);
+        if (selected.Count > 0)
+        {
+            footer.Children.Add(IslandBrushes.Text($"{selected.Count} {(selected.Count == 1 ? "selecionado" : "selecionados")} · arraste um para levar todos", 11.5, IslandBrushes.Dim));
+            buttons.Children.Add(IslandBrushes.Button(IslandBrushes.Text("Desmarcar", 11.5), () => { selected.Clear(); Fill(); }));
+            var remove = IslandBrushes.Button(IslandBrushes.Text("Tirar", 11.5), () => { foreach (var x in selected.ToList()) Shelf.Remove(x); selected.Clear(); Fill(); }, "Tira os selecionados da prateleira");
+            remove.Margin = new Thickness(6, 0, 0, 0);
+            buttons.Children.Add(remove);
+        }
+        else
+        {
+            footer.Children.Add(IslandBrushes.Text($"{Shelf.Items.Count} {(Shelf.Items.Count == 1 ? "item" : "itens")} · clique para selecionar, arraste para usar", 11.5, IslandBrushes.Dim));
+            buttons.Children.Add(IslandBrushes.Button(IslandBrushes.Text("Limpar", 11.5), Shelf.Clear));
+        }
+        footer.Children.Add(buttons);
         Children.Add(footer);
     }
 
@@ -686,19 +702,33 @@ internal sealed class ShelfView : StackPanel
         var stack = new StackPanel();
         stack.Children.Add(icon);
         stack.Children.Add(name);
+        bool isSelected = selected.Contains(path);
+        // Selected: accent outline and a check in the corner.
+        var check = new Border
+        {
+            Width = 18, Height = 18, CornerRadius = new CornerRadius(9), Background = IslandBrushes.Accent, HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -4, -2, 0), Visibility = isSelected ? Visibility.Visible : Visibility.Collapsed,
+            Child = new TextBlock { Text = Glyphs.Check, FontFamily = new FontFamily("Segoe Fluent Icons, Segoe MDL2 Assets"), FontSize = 10, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, Foreground = IslandBrushes.On(((SolidColorBrush)IslandBrushes.Accent).Color) },
+        };
+        var layered = new Grid();
+        layered.Children.Add(stack);
+        layered.Children.Add(check);
         var tile = new Border
         {
-            Child = stack, Width = 94, Padding = new Thickness(6, 10, 6, 8), Margin = new Thickness(0, 0, 9, 9),
+            Child = layered, Width = 94, Padding = new Thickness(6, 10, 6, 8), Margin = new Thickness(0, 0, 9, 9),
             CornerRadius = new CornerRadius(14), Background = IslandBrushes.Card, ToolTip = path, Cursor = Cursors.Hand,
+            BorderThickness = new Thickness(1.5), BorderBrush = isSelected ? IslandBrushes.Accent : Brushes.Transparent,
         };
         tile.MouseEnter += (_, _) => tile.Background = IslandBrushes.Faint;
         tile.MouseLeave += (_, _) => tile.Background = IslandBrushes.Card;
 
         Point? down = null;
+        bool dragged = false;
         tile.MouseLeftButtonDown += (_, e) =>
         {
             down = e.GetPosition(tile);
-            if (e.ClickCount == 2) { down = null; Shell.Open(path); }
+            dragged = false;
+            if (e.ClickCount == 2) { down = null; dragged = true; Shell.Open(path); }
         };
         tile.MouseMove += (_, e) =>
         {
@@ -706,17 +736,30 @@ internal sealed class ShelfView : StackPanel
             var p = e.GetPosition(tile);
             if (Math.Abs(p.X - d.X) < 4 && Math.Abs(p.Y - d.Y) < 4) return;
             down = null;
+            dragged = true;
+            // A selected tile carries the whole selection.
+            var paths = selected.Contains(path) && selected.Count > 1 ? selected.ToArray() : new[] { path };
             hold();
             try
             {
-                var data = new DataObject(DataFormats.FileDrop, new[] { path });
+                var data = new DataObject(DataFormats.FileDrop, paths);
                 var result = DragDrop.DoDragDrop(tile, data, DragDropEffects.Copy | DragDropEffects.Move | DragDropEffects.Link);
-                // Moved somewhere else: it is not here anymore.
-                if (result == DragDropEffects.Move || (!File.Exists(path) && !Directory.Exists(path))) Shelf.Remove(path);
+                // Moved somewhere else: not here anymore.
+                foreach (var x in paths)
+                    if (result == DragDropEffects.Move || (!File.Exists(x) && !Directory.Exists(x))) Shelf.Remove(x);
             }
             finally { release(); }
         };
-        tile.MouseLeftButtonUp += (_, _) => down = null;
+        // A plain click (no drag) selects or unselects.
+        tile.MouseLeftButtonUp += (_, e) =>
+        {
+            bool click = down != null && !dragged;
+            down = null;
+            if (!click) return;
+            e.Handled = true;
+            if (!selected.Remove(path)) selected.Add(path);
+            Fill();
+        };
         tile.MouseRightButtonUp += (_, e) =>
         {
             e.Handled = true;
@@ -739,6 +782,9 @@ internal sealed class ClipboardView : StackPanel
     private readonly StackPanel list = new();
     private readonly ScrollViewer scroll;
     private readonly Action dismiss, hold, release;
+    private static readonly string[] kinds = { "Tudo", "Textos", "Links", "Imagens", "Arquivos" };
+    private static string kind = "Tudo";
+    private readonly StackPanel chips = new() { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
 
     public ClipboardView(Action dismiss, Action hold, Action release)
     {
@@ -746,6 +792,7 @@ internal sealed class ClipboardView : StackPanel
         this.hold = hold;
         this.release = release;
         scroll = new ScrollViewer { Content = list, MaxHeight = 380, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Margin = new Thickness(0, 0, -6, 0), Padding = new Thickness(0, 0, 6, 0) };
+        Children.Add(chips);
         Children.Add(scroll);
         Loaded += (_, _) => { ClipboardHistory.Changed += Fill; Fill(); };
         Unloaded += (_, _) => ClipboardHistory.Changed -= Fill;
@@ -754,8 +801,21 @@ internal sealed class ClipboardView : StackPanel
     private void Fill()
     {
         list.Children.Clear();
-        while (Children.Count > 1) Children.RemoveAt(1);
-        var items = ClipboardHistory.Items.OrderByDescending(x => x.Pinned).ToList();
+        while (Children.Count > 2) Children.RemoveAt(2);
+        // Type chips (only when there is something to filter).
+        chips.Children.Clear();
+        chips.Visibility = ClipboardHistory.Items.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var k in kinds)
+        {
+            int count = ClipboardHistory.Items.Count(x => Is(x, k));
+            if (k != "Tudo" && count == 0) continue;
+            var chip = IslandBrushes.Button(IslandBrushes.Text(k, 11.5), () => { kind = k; Fill(); }, null, 12, new Thickness(10, 4, 10, 5));
+            chip.Margin = new Thickness(0, 0, 6, 0);
+            if (k == kind) { chip.Background = IslandBrushes.Accent; ((TextBlock)chip.Child).Foreground = IslandBrushes.On(((SolidColorBrush)IslandBrushes.Accent).Color); chip.MouseLeave += (_, _) => chip.Background = IslandBrushes.Accent; chip.MouseEnter += (_, _) => chip.Background = IslandBrushes.Accent; }
+            chips.Children.Add(chip);
+        }
+        if (!kinds.Contains(kind) || (kind != "Tudo" && !ClipboardHistory.Items.Any(x => Is(x, kind)))) kind = "Tudo";
+        var items = ClipboardHistory.Items.Where(x => Is(x, kind)).OrderByDescending(x => x.Pinned).ToList();
         if (items.Count == 0)
         {
             list.Children.Add(new TextBlock { Text = "Nada copiado ainda. O que você copiar (Ctrl+C) aparece aqui.", Opacity = 0.55, Margin = new Thickness(4, 8, 4, 10), HorizontalAlignment = HorizontalAlignment.Center });
@@ -769,6 +829,22 @@ internal sealed class ClipboardView : StackPanel
         footer.Children.Add(clear);
         Children.Add(footer);
     }
+
+    private static bool IsLink(string? t)
+    {
+        t = t?.Trim();
+        return t != null && !t.Contains(' ') && !t.Contains('\n')
+            && (t.StartsWith("http://") || t.StartsWith("https://") || t.StartsWith("www."));
+    }
+
+    private static bool Is(ClipEntry e, string k) => k switch
+    {
+        "Textos" => e.Text != null && !IsLink(e.Text),
+        "Links" => IsLink(e.Text),
+        "Imagens" => e.Image != null,
+        "Arquivos" => e.Files != null,
+        _ => true,
+    };
 
     private UIElement Row(ClipEntry e)
     {

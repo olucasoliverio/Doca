@@ -234,6 +234,51 @@ internal static class Audio
 
     #endregion
 
+    /// <summary>Microphone mute state (the default communications capture device), null without a microphone.</summary>
+    public static bool? MicMuted()
+    {
+        try
+        {
+            var en = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            if (en.GetDefaultAudioEndpoint(1 /* eCapture */, 2 /* eCommunications */, out var dev) < 0) return null;
+            var iid = typeof(IAudioEndpointVolume).GUID;
+            if (dev.Activate(ref iid, 23, IntPtr.Zero, out object o) < 0) return null;
+            var ep = (IAudioEndpointVolume)o;
+            bool? m = ep.GetMute(out bool muted) < 0 ? null : muted;
+            Marshal.ReleaseComObject(ep);
+            return m;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Mutes (or unmutes) every active microphone at once, so no app keeps listening through another input.
+    /// The new state follows the default communications microphone. Returns it, or null without a microphone.
+    /// </summary>
+    public static bool? ToggleMicMute()
+    {
+        bool? current = MicMuted();
+        if (current == null) return null;
+        bool mute = !current.Value;
+        try
+        {
+            var en = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+            if (en.EnumAudioEndpoints(1 /* eCapture */, 1 /* DEVICE_STATE_ACTIVE */, out var list) < 0) return null;
+            list.GetCount(out uint n);
+            var iid = typeof(IAudioEndpointVolume).GUID;
+            for (uint i = 0; i < n; i++)
+            {
+                if (list.Item(i, out var dev) < 0 || dev.Activate(ref iid, 23, IntPtr.Zero, out object o) < 0) continue;
+                var ep = (IAudioEndpointVolume)o;
+                var ctx = Guid.Empty;
+                ep.SetMute(mute, ref ctx);
+                Marshal.ReleaseComObject(ep);
+            }
+        }
+        catch (Exception ex) { App.Log(ex); }
+        return mute;
+    }
+
     public static void ToggleMute()
     {
         var ep = Endpoint();
