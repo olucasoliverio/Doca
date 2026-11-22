@@ -183,7 +183,9 @@ internal sealed class SettingsWindow : Window
             Toggle("Câmera e microfone em uso", "Um ponto verde (câmera) ou laranja (microfone) na ilha enquanto algum app usa, e o nome do app quando começa.",
                 () => cfg.IslandPrivacy, v => { cfg.IslandPrivacy = v; Changed(Apply.Screens); }),
             Toggle("Downloads do navegador", "O tamanho baixado aparece na ilha; ao terminar, clique no aviso para ver o arquivo na pasta.",
-                () => cfg.IslandDownloads, v => { cfg.IslandDownloads = v; Changed(Apply.Screens); })),
+                () => cfg.IslandDownloads, v => { cfg.IslandDownloads = v; Changed(Apply.Screens); }),
+            Toggle("Bateria do mouse e do headset", "Mouse Rapoo e headset MCHOSE V9 PRO sem fio (2.4 GHz): cartão Baterias no Início, aviso ao começar a carregar e abaixo de 20%, 10% e 5%, e a porcentagem na ilha quando estiver baixa.",
+                () => cfg.IslandPeripherals, v => { cfg.IslandPeripherals = v; Changed(Apply.Screens); })),
         Card(
             Hint("Clique na ilha para abrir o painel; troque de aba clicando ou com a rodinha. Arraste arquivos até a ilha para guardá-los na aba Arquivos e arraste-os de lá quando for usar. Botão direito na ilha (ou ⋯ no painel): menu do sistema. A ilha também avisa volume, brilho, nova música, fones Bluetooth (com a bateria), Caps Lock, downloads e o fim do timer.")));
 
@@ -259,7 +261,7 @@ internal sealed class SettingsWindow : Window
         return b;
     }
 
-    private static readonly string[] AllWidgets = { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
+    private static readonly string[] AllWidgets = { "Música", "Calendário", "Sistema", "Timer", "Baterias", "Downloads", "Copiados" };
 
     private static string NameOf(Dictionary<string, string> map, string hex) =>
         map.FirstOrDefault(kv => kv.Value.Equals(hex, StringComparison.OrdinalIgnoreCase)).Key ?? map.Keys.First();

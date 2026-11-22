@@ -57,6 +57,7 @@ internal static class Island
         ClipboardHistory.Start(cfg);
         PrivacyWatch.Start();
         DownloadWatch.Start();
+        Peripherals.Start();
     }
 }
 
@@ -385,6 +386,7 @@ internal sealed class IslandWindow : Window
         PrivacyWatch.Changed += OnBadges;
         IslandTimer.Changed += OnBadges;
         DownloadWatch.Changed += OnBadges;
+        Peripherals.Changed += OnBadges;
         Closed += (_, _) =>
         {
             Island.Activity -= OnActivity;
@@ -392,6 +394,7 @@ internal sealed class IslandWindow : Window
             PrivacyWatch.Changed -= OnBadges;
             IslandTimer.Changed -= OnBadges;
             DownloadWatch.Changed -= OnBadges;
+            Peripherals.Changed -= OnBadges;
             if (standalone) tracker.FullscreenChanged -= UpdateVisibility;
             hudTimer.Stop();
             hoverTimer.Stop();
@@ -841,7 +844,8 @@ internal sealed class IslandWindow : Window
         };
         private readonly System.Windows.Shapes.Ellipse camDot = Dot(IslandBrushes.Green), micDot = Dot(IslandBrushes.Orange);
         private readonly TextBlock timerText = BadgeText(), downloadText = BadgeText();
-        private readonly StackPanel timerBadge, downloadBadge;
+        private readonly StackPanel timerBadge, downloadBadge, batteryBadge;
+        private readonly TextBlock batteryText = BadgeText(), batteryGlyph = Glyph("", 11);
         private bool? wasPlaying;
 
         public RestView(bool withClock, double clockSize)
@@ -860,6 +864,11 @@ internal sealed class IslandWindow : Window
             pausedArt.Margin = new Thickness(0, 0, 8, 0);
             pausedArt.ToolTip = "Pausado";
             timerBadge = Badge(ExtraGlyphs.Timer, timerText);
+            // Low battery of the mouse/headset (≤ 20 %), in orange.
+            batteryBadge = new StackPanel { Orientation = Orientation.Horizontal };
+            batteryGlyph.Foreground = batteryText.Foreground = IslandBrushes.Orange;
+            batteryBadge.Children.Add(batteryGlyph);
+            batteryBadge.Children.Add(batteryText);
             downloadBadge = Badge(ExtraGlyphs.Download, downloadText);
             center.Children.Add(camDot);
             center.Children.Add(micDot);
@@ -867,6 +876,7 @@ internal sealed class IslandWindow : Window
             center.Children.Add(clock);
             center.Children.Add(timerBadge);
             center.Children.Add(downloadBadge);
+            center.Children.Add(batteryBadge);
             Children.Add(playing);
             Children.Add(center);
         }
@@ -917,6 +927,14 @@ internal sealed class IslandWindow : Window
             downloadBadge.Visibility = dl ? Visibility.Visible : Visibility.Collapsed;
             downloadText.Text = !dl ? "" : DownloadWatch.Speed > 0 ? DownloadWatch.Rate(DownloadWatch.Speed) : DownloadWatch.Size(DownloadWatch.Bytes);
             downloadBadge.ToolTip = dl ? $"{DownloadWatch.Size(DownloadWatch.Bytes)} baixados" : null;
+            var low = Island.Config?.IslandPeripherals != false ? Peripherals.Low() : null;
+            batteryBadge.Visibility = low != null ? Visibility.Visible : Visibility.Collapsed;
+            if (low != null)
+            {
+                batteryGlyph.Text = low.Glyph;
+                batteryText.Text = $"{low.Level}%";
+                batteryBadge.ToolTip = $"{low.Name}: bateria fraca ({low.Level}%)";
+            }
 
             // The first visible item in the middle has no left gap.
             bool first = true;

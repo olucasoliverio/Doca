@@ -90,7 +90,11 @@ internal sealed class DocaConfig
     /// <summary>Tabs of the island's panel, in order (the ones left out are hidden).</summary>
     public List<string> IslandTabs { get; set; } = new() { "Início", "Música", "Calendário", "Controles", "Bandeja", "Arquivos", "Copiados", "Timer" };
     /// <summary>Widgets on the panel's home tab, in order.</summary>
-    public List<string> IslandWidgets { get; set; } = new() { "Música", "Calendário", "Sistema", "Timer", "Downloads", "Copiados" };
+    public List<string> IslandWidgets { get; set; } = new() { "Música", "Calendário", "Sistema", "Timer", "Baterias", "Downloads", "Copiados" };
+    /// <summary>The Baterias widget was offered once (added to configs saved before it existed).</summary>
+    public bool BatteriesWidgetAdded { get; set; }
+    /// <summary>Battery of the wireless mouse and headset (2.4 GHz receivers) on the island.</summary>
+    public bool IslandPeripherals { get; set; } = true;
     // Status items also in the Control Center; Bluetooth's icon says little, so it starts off the bar.
     public bool ShowWifi { get; set; } = true;
     public bool ShowBluetooth { get; set; } = false;
@@ -135,6 +139,16 @@ internal sealed class DocaConfig
             cfg = CreateDefault();
         }
         foreach (var p in cfg.Pinned) cfg.Resolve(p);
+        // Widgets added after a config was saved show up once; removing them afterwards sticks.
+        if (!cfg.BatteriesWidgetAdded)
+        {
+            if (!cfg.IslandWidgets.Contains("Baterias"))
+            {
+                int at = cfg.IslandWidgets.IndexOf("Timer");
+                cfg.IslandWidgets.Insert(at >= 0 ? at + 1 : cfg.IslandWidgets.Count, "Baterias");
+            }
+            cfg.BatteriesWidgetAdded = true;
+        }
         cfg.Save();
         return cfg;
     }

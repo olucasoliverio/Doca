@@ -124,6 +124,7 @@ internal sealed class HomeView : UniformGrid
                 "Sistema" => Stats(),
                 "Timer" => TimerCard(),
                 "Downloads" => Downloads(),
+                "Baterias" => cfg.IslandPeripherals ? Batteries() : null,
                 "Copiados" => cfg.IslandClipboard ? Clipboard(dismiss) : null,
                 _ => null,
             };
@@ -343,6 +344,53 @@ internal sealed class HomeView : UniformGrid
         Update();
         While(() => IslandTimer.Changed += Update, () => IslandTimer.Changed -= Update);
         return Card(ExtraGlyphs.Timer, "Timer", 7, host);
+    }
+
+    /// <summary>Mouse and headset batteries: glyph, bar, percent (green while charging, orange when low).</summary>
+    private Border Batteries()
+    {
+        var rows = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        void Update()
+        {
+            rows.Children.Clear();
+            foreach (var p in Peripherals.Items.OrderBy(x => x.Name))
+            {
+                var grid = new Grid { Margin = new Thickness(0, 2, 0, 4), ToolTip = p.Asleep ? $"{p.Name}: desligado ou dormindo (último valor)" : p.Charging ? $"{p.Name}: carregando" : p.Name };
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(24) });
+                grid.ColumnDefinitions.Add(new ColumnDefinition());
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(40) });
+                var g = IslandBrushes.Glyph(p.Glyph, 14);
+                g.HorizontalAlignment = HorizontalAlignment.Left;
+                grid.Children.Add(g);
+                double level = (p.Level ?? 0) / 100.0;
+                var color = p.Charging ? IslandBrushes.Green : p.Level <= 20 ? IslandBrushes.Orange : IslandBrushes.Accent;
+                var track = new Grid { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0) };
+                track.Children.Add(new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = IslandBrushes.Faint });
+                track.Children.Add(new Border { Height = 6, CornerRadius = new CornerRadius(3), Background = color, HorizontalAlignment = HorizontalAlignment.Left, Width = Math.Max(6, (CardW - 28 - 24 - 40 - 8) * level) });
+                Grid.SetColumn(track, 1);
+                grid.Children.Add(track);
+                var pct = Line(12, true);
+                pct.Text = p.Level is int l ? $"{l}%" : "—";
+                pct.HorizontalAlignment = HorizontalAlignment.Right;
+                Grid.SetColumn(pct, 2);
+                grid.Children.Add(pct);
+                // Asleep, or quiet for a while (the mouse only reports while in use): last known value, dimmed.
+                bool stale = p.Asleep || DateTime.Now - p.Seen > TimeSpan.FromMinutes(3);
+                grid.Opacity = stale ? 0.45 : 1;
+                if (stale && !p.Asleep) grid.ToolTip = $"{p.Name}: parado, último valor às {p.Seen:HH:mm}";
+                rows.Children.Add(grid);
+            }
+            if (rows.Children.Count == 0)
+            {
+                var t = Line(11.5, false, IslandBrushes.Dim);
+                t.Text = "Nenhum mouse ou headset sem fio encontrado";
+                t.TextWrapping = TextWrapping.Wrap;
+                rows.Children.Add(t);
+            }
+        }
+        Update();
+        While(() => Peripherals.Changed += Update, () => Peripherals.Changed -= Update);
+        return Card("", "Baterias", null, rows);
     }
 
     private Border Downloads()

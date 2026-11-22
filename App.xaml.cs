@@ -56,7 +56,7 @@ public partial class App : Application
         new Thread(() => { while (settings.WaitOne()) Dispatcher.BeginInvoke(ShowSettings); }) { IsBackground = true }.Start();
         new Thread(() => { while (diag.WaitOne()) Dispatcher.BeginInvoke(WriteDiagnostics); }) { IsBackground = true }.Start();
         new Thread(() => { while (spotlight.WaitOne()) Dispatcher.BeginInvoke(() => SpotlightWindow.Toggle(cfg!)); }) { IsBackground = true }.Start();
-        new Thread(() => { while (islandCmd.WaitOne()) Dispatcher.BeginInvoke(() => islands.FirstOrDefault()?.StepPanel()); }) { IsBackground = true }.Start();
+        new Thread(() => { while (islandCmd.WaitOne()) Dispatcher.BeginInvoke(() => (islands.FirstOrDefault(i => i.IsVisible) ?? islands.FirstOrDefault())?.StepPanel()); }) { IsBackground = true }.Start();
 
         // --preview: try Doca without touching the taskbar or other docks.
         bool preview = e.Args.Contains("--preview");
