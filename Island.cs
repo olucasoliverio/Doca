@@ -245,6 +245,8 @@ internal sealed class IslandWindow : Window
     private bool trackHud, hovering;
     private int menusOpen;
     private long menuClosedAt;
+    /// <summary>Button whose menu closed at menuClosedAt (null: right-click menu).</summary>
+    private FrameworkElement? menuClosedFor;
     private string? lastTrack;
     /// <summary>Pointer over the island (the resting pill grows a little: it is clickable).</summary>
     private bool pointerIn;
@@ -529,12 +531,16 @@ internal sealed class IslandWindow : Window
 
     /// <param name="button">The panel's ⋯ button (menu hangs under it, right edges aligned), or null for a
     /// right-click on the island (menu at the pointer, like any context menu).</param>
-    private void ShowSystemMenu(FrameworkElement? button = null)
+    private void ShowSystemMenu(FrameworkElement? button = null) => ShowMenu(button, MenuBarWindow.SystemMenu(cfg));
+
+    /// <summary>The panel's ⏻ button: power options without going through the ⋯ menu.</summary>
+    private void ShowPowerMenu(FrameworkElement button) => ShowMenu(button, MenuBarWindow.PowerMenu(cfg));
+
+    private void ShowMenu(FrameworkElement? button, ContextMenu m)
     {
         // A click on ⋯ with the menu open first closes the menu (outside click), then reaches the button:
-        // the button toggles, so that same click must not open it again.
-        if (Environment.TickCount64 - menuClosedAt < 350) return;
-        var m = MenuBarWindow.SystemMenu(cfg);
+        // the button toggles, so that same click must not open it again. Another button (⋯ open, click on ⏻) opens its own.
+        if (menuClosedFor == button && Environment.TickCount64 - menuClosedAt < 350) return;
         if (button != null)
         {
             m.PlacementTarget = button;
@@ -544,7 +550,7 @@ internal sealed class IslandWindow : Window
         }
         else m.Placement = PlacementMode.MousePoint;
         m.Opened += (_, _) => menusOpen++;
-        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); menuClosedAt = Environment.TickCount64; };
+        m.Closed += (_, _) => { menusOpen = Math.Max(0, menusOpen - 1); menuClosedAt = Environment.TickCount64; menuClosedFor = button; };
         Ui.CloseOnOutsideClick(m);
         m.IsOpen = true;
     }
@@ -635,7 +641,7 @@ internal sealed class IslandWindow : Window
 
         if (hovering && standalone)
         {
-            dashboard ??= new Dashboard(cfg, host, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu,
+            dashboard ??= new Dashboard(cfg, host, () => { leaveTimer.Stop(); Collapse(); }, ShowSystemMenu, ShowPowerMenu,
                 hold: () => holds++,
                 release: () => { holds = Math.Max(0, holds - 1); if (!IsMouseOver && hovering) leaveTimer.Start(); });
             Show(dashboard, 440, null);
@@ -1306,7 +1312,7 @@ internal sealed class IslandWindow : Window
         private Flyout? lent;
         private int index = -1;
 
-        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action<FrameworkElement> systemMenu, Action hold, Action release)
+        public Dashboard(DocaConfig cfg, FrameworkElement anchor, Action dismiss, Action<FrameworkElement> systemMenu, Action<FrameworkElement> powerMenu, Action hold, Action release)
         {
             this.cfg = cfg;
             this.anchor = anchor;
@@ -1361,6 +1367,7 @@ internal sealed class IslandWindow : Window
             var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
             // Spotlight lost its bar button in this mode; it lives here (and on Alt+Espaço).
             buttons.Children.Add(RoundButton(IslandGlyphs.Search, "Spotlight (Alt+Espaço)", _ => { dismiss(); SpotlightWindow.Toggle(cfg); }));
+            buttons.Children.Add(RoundButton("", "Desligar, reiniciar, suspender", powerMenu));
             buttons.Children.Add(RoundButton(IslandGlyphs.More, "Menu do sistema", systemMenu));
             header.Children.Add(buttons);
             Children.Add(header);
@@ -1392,7 +1399,8 @@ internal sealed class IslandWindow : Window
 
         private static Border RoundButton(string glyph, string tip, Action<FrameworkElement> click)
         {
-            var b = new Border { Child = Glyph(glyph, 14), Width = 32, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(4, 0, 0, 0), Cursor = Cursors.Hand, ToolTip = tip };
+            // 30+2 wide: three of them plus all eight tabs still fit the 404 DIP header.
+            var b = new Border { Child = Glyph(glyph, 14), Width = 30, Height = 28, CornerRadius = new CornerRadius(14), Margin = new Thickness(2, 0, 0, 0), Cursor = Cursors.Hand, ToolTip = tip };
             BarFx.Prepare(b);
             b.MouseEnter += (_, _) => BarFx.Hot(b, true);
             b.MouseLeave += (_, _) => BarFx.Hot(b, false);

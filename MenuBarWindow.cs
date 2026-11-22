@@ -203,6 +203,7 @@ internal sealed class MenuBarWindow : Window
         right.Children.Add(volumeItem);
         right.Children.Add(Item(Glyph(""), b => Flyout.Toggle("control", b, () => new ControlCenterFlyout(cfg)), "Central de Controle", pad: 7));
         right.Children.Add(Item(clock, b => Flyout.Toggle("calendar", b, () => new CalendarFlyout(cfg)), null, pad: 10));
+        right.Children.Add(Item(Glyph(""), b => Open(b, PowerMenu(cfg)), "Desligar, reiniciar, suspender", pad: 7));
 
         // Transparente has no background at all, like the iPhone's status bar around the island: no strip,
         // just text and icons on the wallpaper (the shadow below keeps them readable).
@@ -447,18 +448,19 @@ internal sealed class MenuBarWindow : Window
 
     private void ShowSystemMenu(Border b) => Open(b, SystemMenu(cfg));
 
-    /// <summary>The ⊞ menu (also the island's right-click menu when there is no bar).</summary>
-    public static ContextMenu SystemMenu(DocaConfig cfg)
+    /// <summary>The ⏻ menu: power options one click away instead of inside the ⊞ menu.</summary>
+    public static ContextMenu PowerMenu(DocaConfig cfg)
+    {
+        var m = new ContextMenu();
+        AddPowerItems(m, cfg);
+        return m;
+    }
+
+    /// <summary>Suspender/Reiniciar/Desligar + Bloquear/Encerrar Sessão, shared by the ⊞ and ⏻ menus.</summary>
+    private static void AddPowerItems(ContextMenu m, DocaConfig cfg)
     {
         void Confirm(DocaDialog.Kind kind, string title, string message, string actionText, Action action) =>
             DocaDialog.Confirm(kind, title, message, actionText, action, cfg.Font);
-        var m = new ContextMenu();
-        m.Items.Add(Ui.Item("Sobre este PC", () => Shell.Open("ms-settings:about")));
-        m.Items.Add(new Separator());
-        m.Items.Add(Ui.Item("Configurações do Sistema…", () => Shell.Open("ms-settings:")));
-        m.Items.Add(Ui.Item("Menu Iniciar", () => Shell.WinKey()));
-        m.Items.Add(Ui.Item("Gerenciador de Tarefas", () => Shell.Open("taskmgr.exe")));
-        m.Items.Add(new Separator());
         m.Items.Add(Ui.Item("Suspender", () => Native.SetSuspendState(false, false, false)));
         m.Items.Add(Ui.Item("Reiniciar…", () => Confirm(DocaDialog.Kind.Restart, "Reiniciar o computador agora?",
             "Salve o que estiver fazendo: os apps abertos serão fechados.", "Reiniciar",
@@ -471,6 +473,19 @@ internal sealed class MenuBarWindow : Window
         m.Items.Add(Ui.Item("Encerrar Sessão…", () => Confirm(DocaDialog.Kind.SignOut, "Encerrar a sessão agora?",
             "Os apps abertos serão fechados e você voltará para a tela de entrada.", "Encerrar Sessão",
             () => Shell.Open("shutdown.exe", "/l"))));
+    }
+
+    /// <summary>The ⊞ menu (also the island's right-click menu when there is no bar).</summary>
+    public static ContextMenu SystemMenu(DocaConfig cfg)
+    {
+        var m = new ContextMenu();
+        m.Items.Add(Ui.Item("Sobre este PC", () => Shell.Open("ms-settings:about")));
+        m.Items.Add(new Separator());
+        m.Items.Add(Ui.Item("Configurações do Sistema…", () => Shell.Open("ms-settings:")));
+        m.Items.Add(Ui.Item("Menu Iniciar", () => Shell.WinKey()));
+        m.Items.Add(Ui.Item("Gerenciador de Tarefas", () => Shell.Open("taskmgr.exe")));
+        m.Items.Add(new Separator());
+        AddPowerItems(m, cfg);
         m.Items.Add(new Separator());
         m.Items.Add(Ui.Item("Preferências do Doca…", App.ShowSettings));
         m.Items.Add(Ui.Item("Iniciar com o Windows", Startup.Toggle, Startup.Enabled));
