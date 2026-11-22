@@ -923,7 +923,7 @@ internal sealed class IslandWindow : Window
         private readonly bool showCpu;
         private readonly TextBlock batteryText = BadgeText(), batteryGlyph = Glyph("", 11);
         private bool? wasPlaying;
-        private readonly DoubleAnimation agentPulse;
+        private readonly AnimationTimeline agentPulse;
         private bool pulsing;
 
         public RestView(bool withClock, double clockSize)
@@ -954,8 +954,13 @@ internal sealed class IslandWindow : Window
             agentBadge.Children.Add(agentText);
             agentText.MaxWidth = 90;
             agentText.TextTrimming = TextTrimming.CharacterEllipsis;
-            var pulse = new DoubleAnimation(1, 0.35, TimeSpan.FromSeconds(0.9)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
-            Timeline.SetDesiredFrameRate(pulse, 20);
+            // Stepped, 4 redraws/s: every frame redraws the whole island surface (one island per monitor), and a smooth
+            // 20 fps pulse cost ~7% of a core the whole time Claude was working. 8 steps of 250 ms still read as breathing.
+            var pulse = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever, Duration = TimeSpan.FromSeconds(2) };
+            double[] steps = { 1, 0.82, 0.64, 0.48, 0.4, 0.48, 0.64, 0.82 };
+            for (int i = 0; i < steps.Length; i++)
+                pulse.KeyFrames.Add(new DiscreteDoubleKeyFrame(steps[i], KeyTime.FromTimeSpan(TimeSpan.FromSeconds(i * 0.25))));
+            Timeline.SetDesiredFrameRate(pulse, 4);
             agentPulse = pulse;
             // Low battery of the mouse/headset (≤ 20 %), in orange.
             batteryBadge = new StackPanel { Orientation = Orientation.Horizontal };

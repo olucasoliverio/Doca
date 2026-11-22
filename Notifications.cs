@@ -154,10 +154,14 @@ internal static class WinNotifications
         Changed?.Invoke();
     }
 
+    /// <summary>One by one: ClearNotifications fails unpackaged (0x80070490, like NotificationChanged).</summary>
     public static void Clear()
     {
-        try { listener?.ClearNotifications(); }
-        catch (Exception ex) { App.Log(ex); }
+        foreach (var n in Items)
+        {
+            try { listener?.RemoveNotification(n.Id); }
+            catch (Exception ex) { App.Log(ex); }
+        }
         Items = new();
         Changed?.Invoke();
     }
