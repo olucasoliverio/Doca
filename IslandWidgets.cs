@@ -34,8 +34,13 @@ internal static class SystemStats
     public static double Memory { get; private set; }
     public static ulong MemoryUsed { get; private set; }
     public static ulong MemoryTotal { get; private set; }
-    public static double Disk { get; private set; }
-    public static string DiskText { get; private set; } = "";
+    /// <summary>Busiest GPU engine, 0–1 (like Task Manager), or null when there are no GPU counters.</summary>
+    public static double? Gpu { get; private set; }
+    /// <summary>°C, or null when the driver doesn't report it.</summary>
+    public static double? GpuTemp { get; private set; }
+    public static uint GpuFan { get; private set; }
+    /// <summary>Dedicated video memory in use (bytes).</summary>
+    public static double GpuMemory { get; private set; }
     public static double Down { get; private set; }
     public static double Up { get; private set; }
     public static event Action? Changed;
@@ -71,12 +76,11 @@ internal static class SystemStats
                 MemoryUsed = m.ullTotalPhys - m.ullAvailPhys;
                 Memory = MemoryUsed / (double)Math.Max(1, MemoryTotal);
             }
-            var drive = new DriveInfo(Path.GetPathRoot(Environment.SystemDirectory) ?? "C:\\");
-            if (drive.IsReady)
-            {
-                Disk = 1 - drive.AvailableFreeSpace / (double)Math.Max(1, drive.TotalSize);
-                DiskText = $"{drive.AvailableFreeSpace / 1e9:0} GB livres";
-            }
+            GpuSensors.Sample();
+            Gpu = GpuSensors.Usage;
+            GpuTemp = GpuSensors.Temperature;
+            GpuFan = GpuSensors.Fan;
+            GpuMemory = GpuSensors.DedicatedUsed;
             long rx = 0, tx = 0;
             foreach (var n in NetworkInterface.GetAllNetworkInterfaces())
             {
@@ -97,6 +101,160 @@ internal static class SystemStats
         catch (Exception ex) { App.Log(ex); }
         Changed?.Invoke();
     }
+}
+
+/// <summary>
+/// GPU usage, temperature and video memory without admin rights or vendor SDKs.
+/// <para>
+/// Usage and memory: the "GPU Engine" / "GPU Adapter Memory" performance counters (PDH), the ones Task Manager
+/// reads. Utilization is per process and engine; summed per engine, the busiest engine is the GPU's usage (so a
+/// video playing on the decode engine counts too, not only 3D). Temperature and fan: D3DKMTQueryAdapterInfo
+/// with KMTQAITYPE_ADAPTERPERFDATA (WDDM 2.4+), what Task Manager shows as "GPU temperature"; ~0.7 ms.
+/// CPU temperature has no such API: it needs a kernel driver and admin rights, so it is left out.
+/// </para>
+/// </summary>
+internal static class GpuSensors
+{
+    public static double? Usage { get; private set; }
+    public static double? Temperature { get; private set; }
+    public static uint Fan { get; private set; }
+    public static double DedicatedUsed { get; private set; }
+
+    private static IntPtr query, engines, memory;
+    private static bool pdhFailed;
+    private static uint adapter;
+    private static bool adapterSearched;
+
+    public static void Sample()
+    {
+        SampleCounters();
+        SampleAdapter();
+    }
+
+    private static void SampleCounters()
+    {
+        if (pdhFailed) return;
+        if (query == IntPtr.Zero)
+        {
+            if (PdhOpenQuery(null, IntPtr.Zero, out query) != 0
+                || PdhAddEnglishCounter(query, @"\GPU Engine(*)\Utilization Percentage", IntPtr.Zero, out engines) != 0)
+            {
+                pdhFailed = true;
+                return;
+            }
+            PdhAddEnglishCounter(query, @"\GPU Adapter Memory(*)\Dedicated Usage", IntPtr.Zero, out memory);
+            PdhCollectQueryData(query); // rate counters need two samples: the first one only primes them
+            return;
+        }
+        if (PdhCollectQueryData(query) != 0) return;
+
+        // Instance names: pid_1234_luid_0x…_0x…_phys_0_eng_3_engtype_VideoDecode. Sum over processes per engine.
+        var perEngine = new Dictionary<string, double>();
+        foreach (var (name, value) in Read(engines))
+        {
+            int at = name.IndexOf("luid_", StringComparison.Ordinal);
+            string engine = at >= 0 ? name[at..] : name;
+            perEngine[engine] = perEngine.GetValueOrDefault(engine) + value;
+        }
+        Usage = perEngine.Count > 0 ? Math.Clamp(perEngine.Values.Max() / 100, 0, 1) : null;
+        DedicatedUsed = memory != IntPtr.Zero ? Read(memory).Select(x => x.value).DefaultIfEmpty(0).Max() : 0;
+    }
+
+    private static List<(string name, double value)> Read(IntPtr counter)
+    {
+        var list = new List<(string, double)>();
+        uint size = 0;
+        int r = PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, ref size, out uint count, IntPtr.Zero);
+        if (r != PDH_MORE_DATA || size == 0) return list;
+        IntPtr buf = Marshal.AllocHGlobal((int)size);
+        try
+        {
+            if (PdhGetFormattedCounterArray(counter, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, ref size, out count, buf) != 0) return list;
+            int itemSize = Marshal.SizeOf<PDH_FMT_COUNTERVALUE_ITEM>();
+            for (int i = 0; i < count; i++)
+            {
+                var item = Marshal.PtrToStructure<PDH_FMT_COUNTERVALUE_ITEM>(buf + i * itemSize);
+                // 0 valid, 1 new data; anything else (a process that just appeared) has no rate yet.
+                if (item.CStatus > 1) continue;
+                list.Add((Marshal.PtrToStringUni(item.szName) ?? "", item.doubleValue));
+            }
+        }
+        finally { Marshal.FreeHGlobal(buf); }
+        return list;
+    }
+
+    /// <summary>The adapter that reports a temperature (the discrete GPU; Microsoft Basic Render has none).</summary>
+    private static void SampleAdapter()
+    {
+        if (!adapterSearched)
+        {
+            adapterSearched = true;
+            var e = new D3DKMT_ENUMADAPTERS2();
+            if (D3DKMTEnumAdapters2(ref e) != 0 || e.NumAdapters == 0) return;
+            int sz = Marshal.SizeOf<D3DKMT_ADAPTERINFO>();
+            e.pAdapters = Marshal.AllocHGlobal(sz * (int)e.NumAdapters);
+            try
+            {
+                if (D3DKMTEnumAdapters2(ref e) != 0) return;
+                uint best = 0, bestTemp = 0;
+                for (int i = 0; i < e.NumAdapters; i++)
+                {
+                    var a = Marshal.PtrToStructure<D3DKMT_ADAPTERINFO>(e.pAdapters + i * sz);
+                    if (Perf(a.hAdapter) is { Temperature: > 0 } p && p.Temperature > bestTemp) (best, bestTemp) = (a.hAdapter, p.Temperature);
+                }
+                // The handles stay open for the session (one per adapter): reopening every second costs more.
+                adapter = best;
+            }
+            finally { Marshal.FreeHGlobal(e.pAdapters); }
+        }
+        if (adapter == 0) { Temperature = null; return; }
+        if (Perf(adapter) is { } d)
+        {
+            Temperature = d.Temperature > 0 ? d.Temperature / 10.0 : null; // deci-°C
+            Fan = d.FanRPM;
+        }
+    }
+
+    private static D3DKMT_ADAPTER_PERFDATA? Perf(uint hAdapter)
+    {
+        int size = Marshal.SizeOf<D3DKMT_ADAPTER_PERFDATA>();
+        IntPtr buf = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(new D3DKMT_ADAPTER_PERFDATA(), buf, false);
+            var q = new D3DKMT_QUERYADAPTERINFO { hAdapter = hAdapter, Type = KMTQAITYPE_ADAPTERPERFDATA, pPrivateDriverData = buf, PrivateDriverDataSize = (uint)size };
+            return D3DKMTQueryAdapterInfo(ref q) == 0 ? Marshal.PtrToStructure<D3DKMT_ADAPTER_PERFDATA>(buf) : null;
+        }
+        finally { Marshal.FreeHGlobal(buf); }
+    }
+
+    private const uint PDH_FMT_DOUBLE = 0x200, PDH_FMT_NOCAP100 = 0x8000;
+    private const int PDH_MORE_DATA = unchecked((int)0x800007D2);
+    private const int KMTQAITYPE_ADAPTERPERFDATA = 62;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PDH_FMT_COUNTERVALUE_ITEM { public IntPtr szName; public uint CStatus; public double doubleValue; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct D3DKMT_ADAPTERINFO { public uint hAdapter; public uint LuidLow; public int LuidHigh; public uint NumOfSources; public int bPrecisePresentRegionsPreferred; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct D3DKMT_ENUMADAPTERS2 { public uint NumAdapters; public IntPtr pAdapters; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct D3DKMT_QUERYADAPTERINFO { public uint hAdapter; public int Type; public IntPtr pPrivateDriverData; public uint PrivateDriverDataSize; }
+    [StructLayout(LayoutKind.Sequential)]
+    private struct D3DKMT_ADAPTER_PERFDATA
+    {
+        public uint PhysicalAdapterIndex;
+        public ulong MemoryFrequency, MaxMemoryFrequency, MaxMemoryFrequencyOC, MemoryBandwidth, PCIEBandwidth;
+        public uint FanRPM, Power, Temperature;
+        public byte PowerStateOverride;
+    }
+
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] private static extern int PdhOpenQuery(string? source, IntPtr user, out IntPtr query);
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] private static extern int PdhAddEnglishCounter(IntPtr query, string path, IntPtr user, out IntPtr counter);
+    [DllImport("pdh.dll")] private static extern int PdhCollectQueryData(IntPtr query);
+    [DllImport("pdh.dll", CharSet = CharSet.Unicode)] private static extern int PdhGetFormattedCounterArray(IntPtr counter, uint format, ref uint size, out uint count, IntPtr buffer);
+    [DllImport("gdi32.dll")] private static extern int D3DKMTEnumAdapters2(ref D3DKMT_ENUMADAPTERS2 e);
+    [DllImport("gdi32.dll")] private static extern int D3DKMTQueryAdapterInfo(ref D3DKMT_QUERYADAPTERINFO q);
 }
 
 /// <summary>
@@ -258,12 +416,20 @@ internal sealed class HomeView : UniformGrid
         var grid = new Grid();
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(30) });
         grid.ColumnDefinitions.Add(new ColumnDefinition());
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(34) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
         var bars = new Border[3];
         var values = new TextBlock[3];
-        string[] names = { "CPU", "RAM", "Disco" };
+        var temps = new TextBlock[3];
+        // CPU temperature needs a kernel driver (admin): only the GPU's is shown.
+        string[] names = { "CPU", "GPU", "RAM" };
         for (int i = 0; i < 3; i++)
         {
+            temps[i] = Line(10.5, false, IslandBrushes.Dim);
+            temps[i].HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetRow(temps[i], i);
+            Grid.SetColumn(temps[i], 3);
+            grid.Children.Add(temps[i]);
             grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(15) });
             var n = Line(10.5, false, IslandBrushes.Dim);
             n.Text = names[i];
@@ -286,18 +452,24 @@ internal sealed class HomeView : UniformGrid
         net.Margin = new Thickness(0, 2, 0, 0);
         grid.RowDefinitions.Add(new RowDefinition { Height = new GridLength(16) });
         Grid.SetRow(net, 3);
-        Grid.SetColumnSpan(net, 3);
+        Grid.SetColumnSpan(net, 4);
         grid.Children.Add(net);
         void Update()
         {
-            double[] v = { SystemStats.Cpu, SystemStats.Memory, SystemStats.Disk };
+            double?[] v = { SystemStats.Cpu, SystemStats.Gpu, SystemStats.Memory };
             for (int i = 0; i < 3; i++)
             {
-                double w = TrackWidth;
-                bars[i].Width = Math.Max(4, w * v[i]);
-                values[i].Text = $"{v[i] * 100:0}%";
+                double w = TrackWidth + 2 - 28; // value column 2 px narrower, plus the 28 px temperature column
+                bars[i].Width = Math.Max(4, w * (v[i] ?? 0));
+                values[i].Text = v[i] is double d ? $"{d * 100:0}%" : "–";
             }
-            grid.ToolTip = $"Memória: {SystemStats.MemoryUsed / 1e9:0.0} de {SystemStats.MemoryTotal / 1e9:0.0} GB\nDisco do sistema: {SystemStats.DiskText}";
+            temps[1].Text = SystemStats.GpuTemp is double t ? $"{t:0}°" : "";
+            // Hotter GPU, warmer color: orange from 80 °C, red from 90 °C.
+            temps[1].Foreground = SystemStats.GpuTemp switch { >= 90 => IslandBrushes.Red, >= 80 => IslandBrushes.Orange, _ => IslandBrushes.Dim };
+            var tip = $"Memória: {SystemStats.MemoryUsed / 1e9:0.0} de {SystemStats.MemoryTotal / 1e9:0.0} GB";
+            if (SystemStats.GpuMemory > 0) tip += $"\nMemória de vídeo em uso: {SystemStats.GpuMemory / 1e9:0.0} GB";
+            if (SystemStats.GpuTemp != null) tip += $"\nGPU: {SystemStats.GpuTemp:0} °C · ventoinha {(SystemStats.GpuFan > 0 ? $"{SystemStats.GpuFan} rpm" : "parada")}";
+            grid.ToolTip = tip;
             net.Text = $"↓ {DownloadWatch.Rate(SystemStats.Down)}   ↑ {DownloadWatch.Rate(SystemStats.Up)}";
         }
         While(() => SystemStats.Subscribe(Update), () => SystemStats.Unsubscribe(Update));
