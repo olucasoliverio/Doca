@@ -12,6 +12,8 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Exe, shortcuts and window title bars (WPF windows without an Icon use the exe's). Made by Assets\make-icon.ps1. -->
+    <ApplicationIcon>Assets\doca.ico</ApplicationIcon>
     <AssemblyName>Doca</AssemblyName>
     <RootNamespace>Doca</RootNamespace>
     <!-- Program.Main starts the watchdog mode before WPF loads. -->
