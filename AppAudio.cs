@@ -86,28 +86,63 @@ internal sealed class AppMixer : StackPanel
         if (--shown <= 0) { shown = 0; AppAudio.Drop(); }
     }
 
+    /// <summary>When each app last made sound (peak meter above silence), while a mixer was open.</summary>
+    private static readonly Dictionary<string, long> heard = new();
+    /// <summary>"Mostrar mais": every app with a session, not only the ones making sound.</summary>
+    private static bool showAll;
+    private int hiddenCount = -1;
+
+    private static void Listen(Dictionary<string, float> peaks)
+    {
+        long now = Environment.TickCount64;
+        foreach (var (key, p) in peaks) if (p > 0.001f) heard[key] = now;
+    }
+
+    /// <summary>
+    /// Windows keeps a session for every app that ever opened audio (launchers, Steam, RGB tools), and
+    /// "active" doesn't mean audible (wallpaper and RGB apps hold silent streams open). Shown: apps making
+    /// sound now or in the last 30 s, and apps the user turned down or muted (to undo it). The rest go behind
+    /// "Mostrar mais".
+    /// </summary>
+    private static bool Relevant(AppSound a) =>
+        a.Muted || a.Volume < 0.99f || (heard.TryGetValue(a.Key, out long t) && Environment.TickCount64 - t < 30_000);
+
     private void Fill()
     {
-        var list = AppAudio.List();
+        var all = AppAudio.List();
+        Listen(AppAudio.Peaks());
+        var list = showAll ? all : all.Where(Relevant).ToList();
+        int hidden = all.Count - list.Count;
         // Same apps as before: update in place (a rebuild would drop a slider being dragged).
-        if (rows.Count > 0 && list.Select(a => a.Key).SequenceEqual(rows.Keys))
+        if (rows.Count > 0 && hidden == hiddenCount && list.Select(a => a.Key).SequenceEqual(rows.Keys))
         {
             foreach (var a in list) Update(rows[a.Key], a);
             return;
         }
+        hiddenCount = hidden;
         body.Children.Clear();
         rows.Clear();
         if (list.Count == 0)
-        {
-            body.Children.Add(new TextBlock { Text = "Nenhum app com som agora.", FontSize = 11.5, Opacity = 0.55, Margin = new Thickness(0, 2, 0, 2) });
-            return;
-        }
+            body.Children.Add(new TextBlock { Text = "Nenhum app tocando agora.", FontSize = 11.5, Opacity = 0.55, Margin = new Thickness(0, 2, 0, 2) });
         foreach (var a in list)
         {
             var row = Build(a);
             rows[a.Key] = row;
             Update(row, a);
             body.Children.Add(row.Root);
+        }
+        if (hidden > 0 || showAll)
+        {
+            var more = new TextBlock
+            {
+                Text = showAll ? "Mostrar só os que tocam" : hidden == 1 ? "Mostrar mais 1 app" : $"Mostrar mais {hidden} apps",
+                FontSize = 11, Opacity = 0.55, Margin = new Thickness(30, 4, 0, 2), Cursor = Cursors.Hand, Background = Brushes.Transparent,
+                ToolTip = "Apps que abriram o áudio mas não estão tocando (launchers, Steam…)",
+            };
+            more.MouseEnter += (_, _) => more.Opacity = 0.9;
+            more.MouseLeave += (_, _) => more.Opacity = 0.55;
+            more.MouseLeftButtonUp += (_, e) => { e.Handled = true; showAll = !showAll; rows.Clear(); Fill(); };
+            body.Children.Add(more);
         }
     }
 
@@ -177,8 +212,10 @@ internal sealed class AppMixer : StackPanel
 
     private void UpdateMeters()
     {
-        if (rows.Count == 0) return;
+        if (rows.Count == 0 && hiddenCount <= 0) return;
         var peaks = AppAudio.Peaks();
+        // A hidden app that starts playing shows up on the next refresh (within a second).
+        Listen(peaks);
         foreach (var (key, r) in rows)
         {
             float p = r.Muted ? 0 : peaks.GetValueOrDefault(key);
