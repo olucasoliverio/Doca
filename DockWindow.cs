@@ -200,6 +200,16 @@ internal sealed class DockWindow : Window
         MouseLeftButtonUp += OnLeftUp;
         MouseUp += (_, e) => { if (e.ChangedButton == MouseButton.Middle && ItemAt(e.GetPosition(surface)) is { Kind: DockItemKind.App } it) Launch(it); };
         MouseRightButtonUp += (_, e) => ShowMenu(ItemAt(e.GetPosition(surface)));
+        // Wheel over a running app: that app's own volume (EarTrumpet-style), shown on the island.
+        MouseWheel += (_, e) =>
+        {
+            if (ItemAt(e.GetPosition(surface)) is not { Kind: DockItemKind.App, App: { } app } it) return;
+            e.Handled = true;
+            var level = AppAudio.Nudge(app.Key, it.Name, e.Delta > 0 ? 0.04f : -0.04f);
+            Island.Notify(level is float l
+                ? new StatusActivity(l < 0.01f ? "" : "", it.Name, $"Volume {Math.Round(l * 100)}%", true, Seconds: 1.5)
+                : new StatusActivity("", it.Name, "Sem som agora", false, Seconds: 1.5));
+        };
         DragOver += OnDragOver;
         Drop += OnDrop;
 

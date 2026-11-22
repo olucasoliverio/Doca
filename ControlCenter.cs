@@ -228,6 +228,8 @@ internal sealed class ControlCenterFlyout : Flyout
         outputName.Margin = new Thickness(30, 0, 0, 0);
         outputName.Cursor = System.Windows.Input.Cursors.Hand;
         outputName.MouseLeftButtonUp += (_, _) => Flyout.Toggle("sound", Anchor!, () => new SoundFlyout(cfg));
+        // Volume per app (EarTrumpet-style), right under the master volume.
+        sound.Children.Add(new AppMixer());
         Body.Children.Add(Section("Som", sound));
         volume.ValueChanged += (_, e) => { if (!updatingVolume) { Audio.SetLevel((float)(e.NewValue / 100)); UpdateVolumeGlyph(); } };
 

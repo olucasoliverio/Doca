@@ -309,6 +309,7 @@ internal sealed class SoundFlyout : Flyout
         Grid.SetColumn(value, 2);
         row.Children.Add(value);
         Body.Children.Add(row);
+        Body.Children.Add(new AppMixer());
 
         mute.Click += (_, _) => { Audio.ToggleMute(); Refresh(); };
         slider.ValueChanged += (_, e) =>

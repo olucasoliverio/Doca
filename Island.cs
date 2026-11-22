@@ -1483,7 +1483,12 @@ internal sealed class IslandWindow : Window
                     var controls = new StackPanel();
                     controls.Children.Add(Borrow(new ControlCenterFlyout(cfg, embedded: true)));
                     controls.Children.Add(new QuickActions(dismiss));
-                    content = controls;
+                    // Scrolls past the island window's height (two monitors' brightness + the per-app mixer).
+                    content = new ScrollViewer
+                    {
+                        Content = controls, MaxHeight = 470, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+                        Margin = new Thickness(0, 0, -6, 0), Padding = new Thickness(0, 0, 6, 0),
+                    };
                     break;
                 case 5: content = new ShelfView(hold, release); break;
                 case 6:
