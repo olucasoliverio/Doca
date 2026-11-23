@@ -5,3 +5,4 @@ publish/
 *.user
 *.suo
 CLAUDE.md
+dist/

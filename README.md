@@ -14,6 +14,14 @@ Dock e barra de menu estilo macOS para Windows 11, em .NET 10 / WPF.
 
 A cópia instalada é separada da pasta do código: dá para compilar e testar sem fechar o Doca em uso.
 
+### Instalador para outro PC
+
+```powershell
+.\build-installer.ps1     # gera dist\Doca-Setup-<versão>.exe (precisa do Inno Setup 6: winget install JRSoftware.InnoSetup)
+```
+
+O instalador é self-contained (leva o .NET junto, ~50 MB), instala por usuário sem pedir admin na mesma pasta do `install.ps1`, cria o atalho no Iniciar, oferece "Iniciar com o Windows" e aparece em Aplicativos instalados com desinstalador. Antes de atualizar/desinstalar fecha o Doca com `--quit` (que devolve a taskbar). Sem assinatura digital: o SmartScreen avisa na primeira vez ("Mais informações" → "Executar assim mesmo"). A versão vem de `<Version>` no `Doca.csproj`.
+
 ## Desenvolver
 
 ```powershell
