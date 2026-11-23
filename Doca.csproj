@@ -24,8 +24,20 @@
     <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <Version>0.2.0</Version>
-    <NoWarn>$(NoWarn);WPF0001</NoWarn>
+    <!-- WFO0003: WinForms analyzer about DPI settings in app.manifest; this is a WPF app, the manifest is right. -->
+    <NoWarn>$(NoWarn);WPF0001;WFO0003</NoWarn>
   </PropertyGroup>
+
+  <!-- ManagedShell (tray, badges) loads System.Windows.Forms. A framework-dependent install finds it in the shared
+       runtime, but a self-contained publish (build-installer.ps1) leaves it out unless the project asks for it.
+       No global usings for it: its names (Application, Color, MessageBox...) would clash with WPF's. -->
+  <PropertyGroup>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="ManagedShell" Version="0.0.374" />
