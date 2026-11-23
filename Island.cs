@@ -1075,9 +1075,9 @@ internal sealed class IslandWindow : Window
 
     /// <summary>
     /// iOS-style waveform: four rounded bars swinging around the middle, each with its own rhythm, in the album's
-    /// color. Animated (30 fps) only while playing.
+    /// color. Stepped and only while sound is heard (see <see cref="EqualizerBase"/>).
     /// </summary>
-    private sealed class IslandEq : StackPanel
+    private sealed class IslandEq : EqualizerBase
     {
         private static readonly double[][] steps =
         {
@@ -1087,7 +1087,6 @@ internal sealed class IslandWindow : Window
         private static readonly double[] beats = { 0.95, 1.15, 1.05, 1.3 };
         private readonly ScaleTransform[] bars = new ScaleTransform[4];
         private readonly SolidColorBrush fill = new(IslandTheme.Ink);
-        private bool playing;
 
         public IslandEq()
         {
@@ -1114,24 +1113,13 @@ internal sealed class IslandWindow : Window
             }
         }
 
-        public bool Playing
+        protected override void Animate(bool on)
         {
-            set
+            for (int i = 0; i < bars.Length; i++)
             {
-                if (playing == value) return;
-                playing = value;
-                for (int i = 0; i < bars.Length; i++)
-                {
-                    if (!value) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.4; continue; }
-                    var anim = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever };
-                    var seq = steps[i];
-                    double step = beats[i] / seq.Length;
-                    for (int k = 0; k <= seq.Length; k++)
-                        anim.KeyFrames.Add(new EasingDoubleKeyFrame(seq[k % seq.Length], KeyTime.FromTimeSpan(TimeSpan.FromSeconds(step * k)),
-                            new SineEase { EasingMode = EasingMode.EaseInOut }));
-                    Timeline.SetDesiredFrameRate(anim, 30);
-                    bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, anim);
-                }
+                if (!on) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.4; continue; }
+                var seq = steps[i];
+                bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, Steps(beats[i], u => Smooth(seq, u)));
             }
         }
     }

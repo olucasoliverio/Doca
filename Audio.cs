@@ -101,6 +101,7 @@ internal static class Audio
             var pc = (IPolicyConfig)new PolicyConfigClient();
             for (int role = 0; role < 3; role++) pc.SetDefaultEndpoint(id, role); // console, multimedia, communications
             age = 99; // re-acquire the volume endpoint for the new device
+            DropMeter();
         }
         catch (Exception ex) { App.Log(ex); }
     }
@@ -230,7 +231,44 @@ internal static class Audio
         OnUi(() => VolumeChanged?.Invoke(level, muted));
     }
 
-    internal static void OnDefaultChanged() => OnUi(() => { age = 99; WatchDefault(); });
+    internal static void OnDefaultChanged() => OnUi(() => { age = 99; DropMeter(); WatchDefault(); });
+
+    [ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    private interface IAudioMeterInformation
+    {
+        [PreserveSig] int GetPeakValue(out float peak);
+    }
+
+    private static IAudioMeterInformation? meter;
+
+    private static void DropMeter()
+    {
+        if (meter != null) { try { Marshal.ReleaseComObject(meter); } catch { } }
+        meter = null;
+    }
+
+    /// <summary>
+    /// Peak (0..1) of what the default output is playing right now, all apps mixed; null if it can't be read.
+    /// A plain COM read of a value the audio engine already keeps, so it is cheap enough to poll.
+    /// </summary>
+    public static float? OutputPeak()
+    {
+        try
+        {
+            if (meter == null)
+            {
+                var en = (IMMDeviceEnumerator)new MMDeviceEnumerator();
+                if (en.GetDefaultAudioEndpoint(0 /* eRender */, 1 /* eMultimedia */, out var dev) < 0) return null;
+                var iid = typeof(IAudioMeterInformation).GUID;
+                if (dev.Activate(ref iid, 23, IntPtr.Zero, out object o) < 0) return null;
+                meter = (IAudioMeterInformation)o;
+            }
+            if (meter.GetPeakValue(out float p) == 0) return p;
+            DropMeter(); // device gone (unplugged): get the new default next time
+        }
+        catch { DropMeter(); }
+        return null;
+    }
 
     #endregion
 
@@ -285,6 +323,51 @@ internal static class Audio
         if (ep == null || ep.GetMute(out bool m) < 0) return;
         var ctx = Guid.Empty;
         ep.SetMute(!m, ref ctx);
+    }
+}
+
+/// <summary>
+/// Whether sound is actually coming out, for the music bars. Media sessions keep saying "playing" for a muted
+/// tab, a silent ad or a stalled video, so the output meter is asked once a second, and only while someone
+/// watches. Quiet only after ~2 s of silence, so a pause between songs doesn't make the bars stutter.
+/// </summary>
+internal static class OutputActivity
+{
+    private const float Threshold = 0.0005f; // about -66 dB: dithering and noise floors stay below
+    private static readonly System.Windows.Threading.DispatcherTimer timer =
+        new(System.Windows.Threading.DispatcherPriority.Background) { Interval = TimeSpan.FromSeconds(1) };
+    private static readonly HashSet<object> watchers = new();
+    private static int silent;
+
+    public static bool Audible { get; private set; } = true;
+    /// <summary>Raised on the UI thread when <see cref="Audible"/> flips.</summary>
+    public static event Action? Changed;
+
+    static OutputActivity() => timer.Tick += (_, _) => Sample();
+
+    public static void Watch(object who, bool on)
+    {
+        if (on ? !watchers.Add(who) : !watchers.Remove(who)) return;
+        if (on && watchers.Count == 1)
+        {
+            // Fresh start: one silent read is enough to stop, so a muted video never animates.
+            silent = 2;
+            Audible = true;
+            Sample();
+            timer.Start();
+        }
+        else if (watchers.Count == 0) timer.Stop();
+    }
+
+    private static void Sample()
+    {
+        float? p = Audio.OutputPeak();
+        bool heard = p == null || p > Threshold; // unreadable meter: keep the old behavior (animate)
+        silent = heard ? 0 : silent + 1;
+        bool now = silent < 3;
+        if (now == Audible) return;
+        Audible = now;
+        Changed?.Invoke();
     }
 }
 

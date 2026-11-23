@@ -126,13 +126,87 @@ internal static class TemplateIcon
 }
 
 /// <summary>
-/// Three bouncing bars next to the song title while music plays (still and low when paused).
-/// Capped at 20 fps and stopped whenever nothing plays, so an idle bar stays at ~0% CPU.
+/// Music bars, shared by the menu bar and the island. Two things keep them cheap while music plays:
+/// they move in steps (8 redraws/s on a common grid, so every bar changes in the same frame; a smooth
+/// 30 fps waveform on two islands cost ~6.5% of a core), and they stop while nothing is actually heard,
+/// since apps keep saying "playing" for a muted tab, a silent ad or a video stuck buffering.
 /// </summary>
-internal sealed class Equalizer : StackPanel
+internal abstract class EqualizerBase : StackPanel
 {
+    public const int Fps = 8;
+    private bool playing, tracking, animating;
+
+    protected EqualizerBase()
+    {
+        Loaded += (_, _) => Track();
+        Unloaded += (_, _) => Track();
+    }
+
+    public bool Playing
+    {
+        get => playing;
+        set
+        {
+            if (playing == value) return;
+            playing = value;
+            OnPlayingChanged(value);
+            Track();
+        }
+    }
+
+    protected virtual void OnPlayingChanged(bool value) { }
+
+    /// <summary>Starts (true) or stops (false) the bars.</summary>
+    protected abstract void Animate(bool on);
+
+    // Only a loaded, playing equalizer listens to the output meter (a rebuilt island must not keep it alive).
+    private void Track()
+    {
+        bool want = playing && IsLoaded;
+        if (want != tracking)
+        {
+            tracking = want;
+            if (want) OutputActivity.Changed += Apply; else OutputActivity.Changed -= Apply;
+            OutputActivity.Watch(this, want);
+        }
+        Apply();
+    }
+
+    private void Apply()
+    {
+        bool on = tracking && OutputActivity.Audible;
+        if (on == animating) return;
+        animating = on;
+        Animate(on);
+    }
+
+    /// <summary>One cycle of <paramref name="at"/> (0..1 → scale), sampled at <see cref="Fps"/> and repeated.</summary>
+    protected static DoubleAnimationUsingKeyFrames Steps(double cycleSeconds, Func<double, double> at)
+    {
+        int n = Math.Max(2, (int)Math.Round(cycleSeconds * Fps));
+        // The duration is a whole number of frames, so every bar stays on the same 1/Fps grid.
+        var anim = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever, Duration = TimeSpan.FromSeconds((double)n / Fps) };
+        for (int k = 0; k < n; k++)
+            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(at((double)k / n), KeyTime.FromTimeSpan(TimeSpan.FromSeconds((double)k / Fps))));
+        Timeline.SetDesiredFrameRate(anim, Fps);
+        return anim;
+    }
+
+    /// <summary>Sine ease in/out between consecutive values of a looping sequence, at 0..1 of the loop.</summary>
+    protected static double Smooth(double[] seq, double u)
+    {
+        double x = u * seq.Length;
+        int j = (int)Math.Floor(x);
+        double f = (1 - Math.Cos(Math.PI * (x - j))) / 2;
+        return seq[j % seq.Length] + (seq[(j + 1) % seq.Length] - seq[j % seq.Length]) * f;
+    }
+}
+
+/// <summary>Three bouncing bars next to the song title while music plays (hidden when paused).</summary>
+internal sealed class Equalizer : EqualizerBase
+{
+    private static readonly double[] periods = { 0.42, 0.55, 0.36 };
     private readonly ScaleTransform[] bars = new ScaleTransform[3];
-    private bool playing;
 
     public Equalizer()
     {
@@ -153,28 +227,18 @@ internal sealed class Equalizer : StackPanel
         Unloaded += (_, _) => Playing = false;
     }
 
-    public bool Playing
+    // Paused, low still bars read as "…" after the title: hide them (the dimmed item already says paused).
+    protected override void OnPlayingChanged(bool value) => Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+
+    protected override void Animate(bool on)
     {
-        get => playing;
-        set
+        for (int i = 0; i < bars.Length; i++)
         {
-            if (value == playing) return;
-            playing = value;
-            // Paused, low still bars read as "…" after the title: hide them (the dimmed item already says paused).
-            Visibility = value ? Visibility.Visible : Visibility.Collapsed;
-            double[] periods = { 0.42, 0.55, 0.36 };
-            for (int i = 0; i < bars.Length; i++)
-            {
-                if (!value) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.3; continue; }
-                var a = new DoubleAnimation(0.25, 1, TimeSpan.FromSeconds(periods[i]))
-                {
-                    AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever,
-                    EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
-                    BeginTime = TimeSpan.FromSeconds(i * 0.13),
-                };
-                Timeline.SetDesiredFrameRate(a, 20);
-                bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, a);
-            }
+            if (!on) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.3; continue; }
+            // 0.25 → 1 → 0.25 with a sine ease, each bar a little behind the previous one.
+            double cycle = 2 * periods[i], phase = i * 0.13 / cycle;
+            bars[i].BeginAnimation(ScaleTransform.ScaleYProperty,
+                Steps(cycle, u => 0.25 + 0.75 * (1 - Math.Cos(2 * Math.PI * (u - phase))) / 2));
         }
     }
 }
