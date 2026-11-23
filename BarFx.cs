@@ -127,14 +127,44 @@ internal static class TemplateIcon
 
 /// <summary>
 /// Music bars, shared by the menu bar and the island. Two things keep them cheap while music plays:
-/// they move in steps (8 redraws/s on a common grid, so every bar changes in the same frame; a smooth
-/// 30 fps waveform on two islands cost ~6.5% of a core), and they stop while nothing is actually heard,
-/// since apps keep saying "playing" for a muted tab, a silent ad or a video stuck buffering.
+/// <list type="bullet">
+/// <item>One shared ticker moves every bar of every equalizer at <see cref="Fps"/>, so a frame is rendered
+/// 8 times a second in total. Each equalizer running its own WPF animations (smooth 30 fps on two islands)
+/// cost ~6.5% of a core; even stepped at 8 fps, clocks started at different moments didn't line up and
+/// doubled the frames.</item>
+/// <item>They stop while nothing is actually heard, since apps keep saying "playing" for a muted tab,
+/// a silent ad or a video stuck buffering (<see cref="OutputActivity"/>).</item>
+/// </list>
 /// </summary>
 internal abstract class EqualizerBase : StackPanel
 {
     public const int Fps = 8;
+    private static readonly System.Windows.Threading.DispatcherTimer ticker =
+        new(System.Windows.Threading.DispatcherPriority.Render) { Interval = TimeSpan.FromSeconds(1.0 / Fps) };
+    private static readonly List<EqualizerBase> moving = new();
+    private static long frame;
     private bool playing, tracking, animating;
+
+    private bool resting;
+
+    // Every window that changes costs ~5 ms of CPU per frame in the render thread (D3D9 present + driver), so
+    // with one island per screen only the one on the mouse's screen moves; the others rest.
+    static EqualizerBase() => ticker.Tick += (_, _) =>
+    {
+        frame++;
+        IntPtr screen = moving.Count > 1 && Native.GetCursorPos(out var pt) ? Native.MonitorFromPoint(pt, 2 /* NEAREST */) : IntPtr.Zero;
+        foreach (var eq in moving) eq.Tick(screen);
+    };
+
+    private void Tick(IntPtr screen)
+    {
+        if (screen == IntPtr.Zero || Screen() == screen) { Step(frame); resting = false; }
+        else if (!resting) { Rest(); resting = true; }
+    }
+
+    private IntPtr Screen() =>
+        PresentationSource.FromVisual(this) is System.Windows.Interop.HwndSource src
+            ? Native.MonitorFromWindow(src.Handle, 2 /* NEAREST */) : IntPtr.Zero;
 
     protected EqualizerBase()
     {
@@ -156,8 +186,11 @@ internal abstract class EqualizerBase : StackPanel
 
     protected virtual void OnPlayingChanged(bool value) { }
 
-    /// <summary>Starts (true) or stops (false) the bars.</summary>
-    protected abstract void Animate(bool on);
+    /// <summary>Sets the bars for this frame of the shared ticker.</summary>
+    protected abstract void Step(long frame);
+
+    /// <summary>Puts the bars back at rest.</summary>
+    protected abstract void Rest();
 
     // Only a loaded, playing equalizer listens to the output meter (a rebuilt island must not keep it alive).
     private void Track()
@@ -177,20 +210,30 @@ internal abstract class EqualizerBase : StackPanel
         bool on = tracking && OutputActivity.Audible;
         if (on == animating) return;
         animating = on;
-        Animate(on);
+        if (on)
+        {
+            moving.Add(this);
+            resting = true; // the next tick decides whether this one moves
+            if (!ticker.IsEnabled) ticker.Start();
+        }
+        else
+        {
+            moving.Remove(this);
+            Rest();
+            if (moving.Count == 0) ticker.Stop();
+        }
     }
 
-    /// <summary>One cycle of <paramref name="at"/> (0..1 → scale), sampled at <see cref="Fps"/> and repeated.</summary>
-    protected static DoubleAnimationUsingKeyFrames Steps(double cycleSeconds, Func<double, double> at)
+    /// <summary>One cycle of <paramref name="at"/> (0..1 → scale), sampled at <see cref="Fps"/>.</summary>
+    protected static double[] Steps(double cycleSeconds, Func<double, double> at)
     {
         int n = Math.Max(2, (int)Math.Round(cycleSeconds * Fps));
-        // The duration is a whole number of frames, so every bar stays on the same 1/Fps grid.
-        var anim = new DoubleAnimationUsingKeyFrames { RepeatBehavior = RepeatBehavior.Forever, Duration = TimeSpan.FromSeconds((double)n / Fps) };
-        for (int k = 0; k < n; k++)
-            anim.KeyFrames.Add(new DiscreteDoubleKeyFrame(at((double)k / n), KeyTime.FromTimeSpan(TimeSpan.FromSeconds((double)k / Fps))));
-        Timeline.SetDesiredFrameRate(anim, Fps);
-        return anim;
+        var values = new double[n];
+        for (int k = 0; k < n; k++) values[k] = at((double)k / n);
+        return values;
     }
+
+    protected static double At(double[] cycle, long frame) => cycle[(int)(frame % cycle.Length)];
 
     /// <summary>Sine ease in/out between consecutive values of a looping sequence, at 0..1 of the loop.</summary>
     protected static double Smooth(double[] seq, double u)
@@ -205,7 +248,12 @@ internal abstract class EqualizerBase : StackPanel
 /// <summary>Three bouncing bars next to the song title while music plays (hidden when paused).</summary>
 internal sealed class Equalizer : EqualizerBase
 {
-    private static readonly double[] periods = { 0.42, 0.55, 0.36 };
+    // 0.25 → 1 → 0.25 with a sine ease, each bar with its own period and a little behind the previous one.
+    private static readonly double[][] cycles = new[] { 0.42, 0.55, 0.36 }.Select((period, i) =>
+    {
+        double cycle = 2 * period, phase = i * 0.13 / cycle;
+        return Steps(cycle, u => 0.25 + 0.75 * (1 - Math.Cos(2 * Math.PI * (u - phase))) / 2);
+    }).ToArray();
     private readonly ScaleTransform[] bars = new ScaleTransform[3];
 
     public Equalizer()
@@ -230,15 +278,13 @@ internal sealed class Equalizer : EqualizerBase
     // Paused, low still bars read as "…" after the title: hide them (the dimmed item already says paused).
     protected override void OnPlayingChanged(bool value) => Visibility = value ? Visibility.Visible : Visibility.Collapsed;
 
-    protected override void Animate(bool on)
+    protected override void Step(long frame)
     {
-        for (int i = 0; i < bars.Length; i++)
-        {
-            if (!on) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.3; continue; }
-            // 0.25 → 1 → 0.25 with a sine ease, each bar a little behind the previous one.
-            double cycle = 2 * periods[i], phase = i * 0.13 / cycle;
-            bars[i].BeginAnimation(ScaleTransform.ScaleYProperty,
-                Steps(cycle, u => 0.25 + 0.75 * (1 - Math.Cos(2 * Math.PI * (u - phase))) / 2));
-        }
+        for (int i = 0; i < bars.Length; i++) bars[i].ScaleY = At(cycles[i], frame);
+    }
+
+    protected override void Rest()
+    {
+        foreach (var b in bars) b.ScaleY = 0.3;
     }
 }

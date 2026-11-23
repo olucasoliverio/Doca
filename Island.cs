@@ -1085,6 +1085,7 @@ internal sealed class IslandWindow : Window
             new[] { 0.45, 1.0, 0.35, 0.75, 0.55 }, new[] { 0.9, 0.4, 0.7, 0.3, 1.0 },
         };
         private static readonly double[] beats = { 0.95, 1.15, 1.05, 1.3 };
+        private static readonly double[][] cycles = steps.Select((seq, i) => Steps(beats[i], u => Smooth(seq, u))).ToArray();
         private readonly ScaleTransform[] bars = new ScaleTransform[4];
         private readonly SolidColorBrush fill = new(IslandTheme.Ink);
 
@@ -1113,14 +1114,14 @@ internal sealed class IslandWindow : Window
             }
         }
 
-        protected override void Animate(bool on)
+        protected override void Step(long frame)
         {
-            for (int i = 0; i < bars.Length; i++)
-            {
-                if (!on) { bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, null); bars[i].ScaleY = 0.4; continue; }
-                var seq = steps[i];
-                bars[i].BeginAnimation(ScaleTransform.ScaleYProperty, Steps(beats[i], u => Smooth(seq, u)));
-            }
+            for (int i = 0; i < bars.Length; i++) bars[i].ScaleY = At(cycles[i], frame);
+        }
+
+        protected override void Rest()
+        {
+            foreach (var b in bars) b.ScaleY = 0.4;
         }
     }
 
