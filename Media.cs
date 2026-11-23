@@ -63,6 +63,7 @@ internal static class NowPlaying
         {
             Title = Artist = "";
             Art = null;
+            artBytes = null;
             AppId = null;
             Playing = false;
             Changed?.Invoke();
@@ -86,27 +87,36 @@ internal static class NowPlaying
         _ = RefreshMedia();
     }
 
+    private static int mediaSeq; // overlapping refreshes: only the newest may write
+    private static byte[]? artBytes;
+
     private static async Task RefreshMedia()
     {
         var s = session;
-        int v = version;
+        int v = version, seq = ++mediaSeq;
         if (s == null) return;
         try
         {
             var p = await s.TryGetMediaPropertiesAsync();
-            if (v != version || p == null) return;
-            bool trackChanged = p.Title != Title || p.Artist != Artist;
+            if (v != version || seq != mediaSeq || p == null) return;
             Title = p.Title ?? "";
             Artist = p.Artist ?? "";
-            if (trackChanged || Art == null) Art = p.Thumbnail != null ? await LoadArt(p.Thumbnail) : null;
-            if (v != version) return;
+            // The artwork is compared by content on every change, not only when the title changes:
+            // Chrome switching tabs sends the new title with the old (or no) artwork first and the
+            // new artwork in a later event with the same title, which used to be skipped.
+            var bytes = p.Thumbnail != null ? await ReadArt(p.Thumbnail) : null;
+            if (v != version || seq != mediaSeq) return;
+            if (!SameBytes(bytes, artBytes))
+            {
+                artBytes = bytes;
+                Art = bytes != null ? DecodeArt(bytes) : null;
+            }
             Changed?.Invoke();
         }
         catch (Exception ex) { App.Log(ex); }
     }
 
-    /// <summary>Decoded small (the flyout shows it at 64 px) and frozen, so it costs ~100 KB, not the full cover.</summary>
-    private static async Task<ImageSource?> LoadArt(Windows.Storage.Streams.IRandomAccessStreamReference reference)
+    private static async Task<byte[]?> ReadArt(Windows.Storage.Streams.IRandomAccessStreamReference reference)
     {
         try
         {
@@ -114,12 +124,24 @@ internal static class NowPlaying
             using var managed = stream.AsStreamForRead();
             var copy = new MemoryStream();
             await managed.CopyToAsync(copy);
-            copy.Position = 0;
+            return copy.Length > 0 ? copy.ToArray() : null;
+        }
+        catch { return null; }
+    }
+
+    private static bool SameBytes(byte[]? a, byte[]? b) =>
+        ReferenceEquals(a, b) || (a != null && b != null && a.AsSpan().SequenceEqual(b));
+
+    /// <summary>Decoded small (the flyout shows it at 64 px) and frozen, so it costs ~100 KB, not the full cover.</summary>
+    private static ImageSource? DecodeArt(byte[] bytes)
+    {
+        try
+        {
             var bmp = new BitmapImage();
             bmp.BeginInit();
             bmp.CacheOption = BitmapCacheOption.OnLoad;
             bmp.DecodePixelWidth = 160;
-            bmp.StreamSource = copy;
+            bmp.StreamSource = new MemoryStream(bytes);
             bmp.EndInit();
             bmp.Freeze();
             return bmp;
